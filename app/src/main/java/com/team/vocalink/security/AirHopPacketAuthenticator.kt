@@ -11,6 +11,8 @@ import javax.crypto.Mac
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
 
 /**
  * Compact authentication/integrity envelope for the 40-byte AirHop frame.
@@ -41,7 +43,16 @@ class AirHopPacketAuthenticator(context: Context) {
             "AES",
             "AndroidKeyStore"
         )
-        generator.init(256)
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                KS_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setKeySize(256)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .build()
+        )
         return generator.generateKey().also {
             // A generated Keystore key is persisted by the provider under KS_ALIAS.
         }
