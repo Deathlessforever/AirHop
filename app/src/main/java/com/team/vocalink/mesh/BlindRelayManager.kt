@@ -28,7 +28,8 @@ class BlindRelayManager(
     private val bleMeshEngine: BleMeshEngine,
     private val geofenceManager: GeofenceManager,
     private val dndBypassAlertManager: DndBypassAlertManager,
-    private val neuralTtsHook: NeuralTtsHook
+    private val neuralTtsHook: NeuralTtsHook,
+    context: android.content.Context
 ) {
     companion object {
         private const val TAG = "BlindRelayManager"
