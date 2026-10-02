@@ -444,7 +444,8 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Save key") { _, _ ->
                 try {
                     auth.importKey(input.text.toString())
-                    Toast.makeText(this, "Mesh security key saved.", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Mesh security key saved. Restarting mesh transports.", Toast.LENGTH_SHORT).show()
+                    restartMeshServiceForKeyChange()
                 } catch (_: Exception) {
                     Toast.makeText(this, "Invalid key. Use the generated 256-bit value.", Toast.LENGTH_LONG).show()
                 }
@@ -519,6 +520,24 @@ class MainActivity : AppCompatActivity() {
                     chatAdapter.notifyDataSetChanged()
                 }
             }
+        }
+    }
+
+    private fun restartMeshServiceForKeyChange() {
+        try {
+            val intent = Intent(this, AirHopMeshService::class.java)
+            if (isBound) {
+                try { unbindService(serviceConnection) } catch (_: Exception) {}
+                isBound = false
+            }
+            meshService = null
+            stopService(intent)
+            window.decorView.postDelayed({
+                if (!isFinishing && !isDestroyed) startAndBindMeshService()
+            }, 350L)
+        } catch (e: Exception) {
+            android.util.Log.e("AirHopSecurity", "Mesh restart after key change failed", e)
+            Toast.makeText(this, "Key saved. Restart AirHop manually to apply it.", Toast.LENGTH_LONG).show()
         }
     }
 
