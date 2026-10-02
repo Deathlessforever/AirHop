@@ -195,11 +195,10 @@ class BleMeshEngine(
                 }
                 isAdvertising = true
             } catch (e: Exception) {
-                Log.e(TAG, "Extended advertising failed, attempting legacy fallback", e)
-                broadcastLegacy(adv, pdata)
+                Log.e(TAG, "Extended advertising failed; AirHop frame was not sent over BLE", e)
             }
         } else {
-            broadcastLegacy(adv, pdata)
+            Log.w(TAG, "AirHop frame not sent: LE Extended Advertising is unavailable")
         }
     }
 
