@@ -108,6 +108,11 @@ class MainActivity : AppCompatActivity() {
         override fun onServiceDisconnected(name: ComponentName?) {
             meshService = null
             isBound = false
+            serviceObserversStarted = false
+            Toast.makeText(this@MainActivity, "AirHop mesh disconnected. Reconnecting…", Toast.LENGTH_SHORT).show()
+            if (!isFinishing && !isDestroyed) {
+                window.decorView.postDelayed({ startAndBindMeshService() }, 500L)
+            }
         }
     }
 
@@ -315,13 +320,13 @@ class MainActivity : AppCompatActivity() {
         service.bleMeshEngine.setPowerSaveMode(newEco)
 
         if (newEco) {
-            btnBatteryMode.text = "🔋 72h ECO"
+            btnBatteryMode.text = "🔋 ECO MODE"
             btnBatteryMode.setTextColor(android.graphics.Color.parseColor("#00E676"))
-            Toast.makeText(this, "🔋 72-Hour Disaster Battery Mode ACTIVE: BLE duty-cycled to save phone power.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "🔋 ECO mode active: BLE scanning uses a lower-power duty cycle.", Toast.LENGTH_LONG).show()
         } else {
-            btnBatteryMode.text = "⚡ 100% PWR"
+            btnBatteryMode.text = "⚡ FULL POWER"
             btnBatteryMode.setTextColor(android.graphics.Color.parseColor("#FFD600"))
-            Toast.makeText(this, "⚡ Full Power Mode ACTIVE: Continuous low-latency packet relay.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "⚡ Full-power mode active: BLE scanning prioritizes responsiveness.", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -438,8 +443,8 @@ class MainActivity : AppCompatActivity() {
             phraseId = phraseId,
             isSos = isSos,
             lang = selectedLanguage.langByte,
-            lat = lat ?: 0.0,
-            lon = lon ?: 0.0
+            lat = lat,
+            lon = lon
         )
 
         tokenVisualizerView.updateAudioRms(0.75f, com.team.vocalink.core.VadState.ACTIVE)
