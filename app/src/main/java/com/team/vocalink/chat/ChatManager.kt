@@ -2,6 +2,8 @@ package com.team.vocalink.chat
 
 import android.content.Context
 import android.util.Log
+import android.util.Base64
+import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
 import com.team.vocalink.alert.OfflineTtsEngine
@@ -36,7 +38,7 @@ class ChatManager(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val prefs = context.getSharedPreferences("airhop_messages", Context.MODE_PRIVATE)
     private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
-    private val storageKey = "messages_v1"
+    private val storageKey = "messages_v1"\n    private val outboxKey = "outbox_v1"
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(loadMessages())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -161,6 +163,42 @@ class ChatManager(
 
             // Send Delivery ACK packet back over mesh so User 1 gets the Blue Tick!
             sendAckPacket(msgId, lang)
+        }
+    }
+
+    private fun persistOutbox(msgId: Int, packet: ByteArray) {
+        val out = prefs.getString(outboxKey, null)?.let { runCatching { JSONArray(it) }.getOrNull() } ?: JSONArray()
+        val obj = JSONObject().apply {
+            put("id", msgId)
+            put("packet", Base64.encodeToString(packet, Base64.NO_WRAP))
+        }
+        out.put(obj)
+        prefs.edit().putString(outboxKey, out.toString()).apply()
+    }
+
+    private fun removeOutbox(msgId: Int) {
+        val raw = prefs.getString(outboxKey, null) ?: return
+        val old = runCatching { JSONArray(raw) }.getOrNull() ?: return
+        val next = JSONArray()
+        for (i in 0 until old.length()) if (old.getJSONObject(i).optInt("id") != msgId) next.put(old.getJSONObject(i))
+        prefs.edit().putString(outboxKey, next.toString()).apply()
+    }
+
+    private fun retryOutbox(msgId: Int) {
+        scope.launch {
+            repeat(6) {
+                delay(5_000)
+                val raw = prefs.getString(outboxKey, null) ?: return@launch
+                val array = runCatching { JSONArray(raw) }.getOrNull() ?: return@launch
+                for (i in 0 until array.length()) {
+                    val item = array.getJSONObject(i)
+                    if (item.optInt("id") == msgId) {
+                        val packet = Base64.decode(item.getString("packet"), Base64.NO_WRAP)
+                        bleMeshEngine.broadcastPacket(packet)
+                    }
+                }
+                if (!prefs.getString(outboxKey, null).orEmpty().contains(""id":$msgId")) return@launch
+            }
         }
     }
 
