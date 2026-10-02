@@ -8,8 +8,6 @@ import android.bluetooth.le.AdvertisingSet
 import android.bluetooth.le.AdvertisingSetCallback
 import android.bluetooth.le.AdvertisingSetParameters
 import android.bluetooth.le.AdvertiseData
-import android.bluetooth.le.AdvertiseSettings
-import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.BluetoothLeAdvertiser
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
@@ -18,80 +16,76 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.security.AirHopPacketAuthenticator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
-/**
- * BLE Coded PHY Engine: Emits and listens for non-connectable anonymous packets carrying
- * 40-byte raw AirHop disaster frames over LE Coded PHY (S=8 mode, max range) with Service UUID 0xFD6F.
- */
 class BleMeshEngine(
     private val context: Context,
     private val packetReceiver: (ByteArray, Int) -> Unit
 ) {
     companion object {
         private const val TAG = "BleMeshEngine"
+        private const val QUEUE_LIMIT = 64
+        private const val HOLD_MS = 120L
+        private const val PEER_TTL_MS = 30_000L
     }
 
     private val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
     private var advertiser: BluetoothLeAdvertiser? = null
     private var scanner: BluetoothLeScanner? = null
-
     private var currentAdvSet: AdvertisingSet? = null
-    private var isAdvertising = false
+    private var presenceAdvSet: AdvertisingSet? = null
+    private val presenceUuid = android.os.ParcelUuid(java.util.UUID.fromString("0000FD70-0000-1000-8000-00805F9B34FB"))
+    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
+    private var presenceLocationProvider: (() -> Triple<Double, Double, Boolean>?)? = null
+    private var presenceCallback: ((Int, Double, Double, Int) -> Unit)? = null
     private var isScanning = false
+
+    private val authenticator = AirHopPacketAuthenticator(context)
+    private val udpMeshSocket = UdpMeshSocket(context, packetReceiver)
+    private val queue = ConcurrentLinkedQueue<ByteArray>()
+    private val pumpRunning = AtomicBoolean(false)
+    private val handler = Handler(Looper.getMainLooper())
+    private val scanExecutor = Executors.newSingleThreadExecutor()
+    private val peers = ConcurrentHashMap<String, Long>()
 
     private val _isCodedPhySupported = MutableStateFlow(false)
     val isCodedPhySupported: StateFlow<Boolean> = _isCodedPhySupported.asStateFlow()
-
     private val _activePeerCount = MutableStateFlow(0)
     val activePeerCount: StateFlow<Int> = _activePeerCount.asStateFlow()
-
     private val _isPowerSaveMode = MutableStateFlow(false)
     val isPowerSaveMode: StateFlow<Boolean> = _isPowerSaveMode.asStateFlow()
 
-    // Dual-bearer offline UDP socket for local mesh acceleration
-    private val udpMeshSocket = UdpMeshSocket(packetReceiver)
-
-    // Sliding window of peer device timestamps for real-time active peer counting
-    private val recentPeers = ConcurrentLinkedQueue<Pair<String, Long>>()
-
     init {
-        checkHardwareCapabilities()
-    }
-
-    private fun checkHardwareCapabilities() {
-        val adapter = bluetoothAdapter ?: return
-        val codedSupported = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            adapter.isLeCodedPhySupported && adapter.isLeExtendedAdvertisingSupported
-        } else {
-            false
-        }
-        _isCodedPhySupported.value = codedSupported
-        Log.i(TAG, "Bluetooth LE Coded PHY hardware support: $codedSupported")
+        val adapter = bluetoothAdapter
+        _isCodedPhySupported.value = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            adapter?.isLeCodedPhySupported == true &&
+            adapter.isLeExtendedAdvertisingSupported
     }
 
     @SuppressLint("MissingPermission")
+    fun setPresenceLocationProvider(provider: (() -> Triple<Double, Double, Boolean>?)?) { presenceLocationProvider = provider }
+    fun setPresenceObserver(observer: ((Int, Double, Double, Int) -> Unit)?) { presenceCallback = observer }
+
     fun start() {
-        val adapter = bluetoothAdapter ?: run {
-            Log.e(TAG, "BluetoothAdapter is null")
-            return
-        }
-
-        if (!adapter.isEnabled) {
-            Log.w(TAG, "Bluetooth is disabled on host device")
-            return
-        }
-
+        val adapter = bluetoothAdapter ?: return
+        if (!adapter.isEnabled) return
         advertiser = adapter.bluetoothLeAdvertiser
         scanner = adapter.bluetoothLeScanner
-
         startScanning()
+        startPresenceAdvertising()
+        handler.postDelayed(presenceRefresh, 10_000L)
         udpMeshSocket.start()
     }
 
@@ -99,155 +93,124 @@ class BleMeshEngine(
     fun stop() {
         stopScanning()
         stopAdvertising()
+        stopPresenceAdvertising()
         udpMeshSocket.stop()
+        queue.clear()
+        scanExecutor.shutdownNow()
+        handler.removeCallbacksAndMessages(null)
     }
 
     @SuppressLint("MissingPermission")
     fun setPowerSaveMode(enabled: Boolean) {
         if (_isPowerSaveMode.value == enabled) return
         _isPowerSaveMode.value = enabled
-        Log.i(TAG, "Battery Eco-Mode toggled: enabled=$enabled")
         if (isScanning) {
             stopScanning()
             startScanning()
         }
     }
 
+    private var secondaryBroadcaster: ((ByteArray) -> Unit)? = null
+    fun setSecondaryBroadcaster(broadcaster: ((ByteArray) -> Unit)?) { secondaryBroadcaster = broadcaster }
+
     @SuppressLint("MissingPermission")
     private fun startScanning() {
-        if (isScanning || scanner == null) return
-
-        val scanFilter = ScanFilter.Builder()
-            .setServiceData(ProtocolConstants.PARCEL_SERVICE_UUID, null)
+        val s = scanner ?: return
+        if (isScanning) return
+        val filter = ScanFilter.Builder().setServiceData(ProtocolConstants.PARCEL_SERVICE_UUID, null).build()
+        val presenceFilter = ScanFilter.Builder().setServiceData(presenceUuid, null).build()
+        val settings = ScanSettings.Builder()
+            .setScanMode(if (_isPowerSaveMode.value) ScanSettings.SCAN_MODE_LOW_POWER else ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
-
-        val scanMode = if (_isPowerSaveMode.value) {
-            ScanSettings.SCAN_MODE_LOW_POWER
-        } else {
-            ScanSettings.SCAN_MODE_LOW_LATENCY
-        }
-
-        val scanSettings = ScanSettings.Builder()
-            .setScanMode(scanMode)
-            .setReportDelay(0)
-            .build()
-
         try {
-            scanner?.startScan(listOf(scanFilter), scanSettings, scanCallback)
+            s.startScan(listOf(filter, presenceFilter), settings, scanCallback)
             isScanning = true
-            Log.i(TAG, "Universal BLE Scanner started in mode $scanMode for UUID 0xFD6F (ecoMode=${_isPowerSaveMode.value})")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to start BLE scan", e)
+            Log.e(TAG, "BLE scan start failed", e)
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun stopScanning() {
         if (!isScanning) return
-        try {
-            scanner?.stopScan(scanCallback)
-            isScanning = false
-            Log.i(TAG, "BLE Scanner stopped")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping scan", e)
-        }
+        try { scanner?.stopScan(scanCallback) } catch (_: Exception) {}
+        isScanning = false
     }
 
-    /**
-     * Broadcasts a raw 40-byte AirHop frame over BLE Extended / Legacy and local UDP mesh.
-     */
     @SuppressLint("MissingPermission")
     fun broadcastPacket(packet40Bytes: ByteArray) {
-        if (packet40Bytes.size != ProtocolConstants.PACKET_SIZE) {
-            Log.e(TAG, "broadcastPacket: invalid payload size ${packet40Bytes.size}, expected 40")
-            return
-        }
+        if (packet40Bytes.size != ProtocolConstants.PACKET_SIZE ||
+            packet40Bytes[0] != ProtocolConstants.AIRHOP_PREAMBLE) return
 
-        // Dual-bearer: always dispatch over UDP mesh socket simultaneously for sub-5ms latency
-        udpMeshSocket.broadcastPacket(packet40Bytes)
+        val secure = authenticator.wrap(packet40Bytes)
+        udpMeshSocket.broadcastPacket(secure)
 
-        val adv = advertiser ?: bluetoothAdapter?.bluetoothLeAdvertiser ?: return
-
-        val pdata = AdvertiseData.Builder()
-            .addServiceData(ProtocolConstants.PARCEL_SERVICE_UUID, packet40Bytes)
-            .setIncludeDeviceName(false)
-            .setIncludeTxPowerLevel(false)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && (bluetoothAdapter?.isLeExtendedAdvertisingSupported == true)) {
-            val secondaryPhy = if (_isCodedPhySupported.value) BluetoothDevice.PHY_LE_CODED else BluetoothDevice.PHY_LE_1M
-            val params = AdvertisingSetParameters.Builder()
-                .setLegacyMode(false)
-                .setConnectable(false)
-                .setScannable(false)
-                .setPrimaryPhy(BluetoothDevice.PHY_LE_1M)
-                .setSecondaryPhy(secondaryPhy)
-                .setInterval(AdvertisingSetParameters.INTERVAL_LOW)
-                .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MAX)
-                .setAnonymous(false)
-                .build()
-
-            try {
-                if (currentAdvSet != null) {
-                    currentAdvSet?.setAdvertisingData(pdata)
-                } else {
-                    adv.startAdvertisingSet(params, pdata, null, null, null, advertisingSetCallback)
-                }
-                isAdvertising = true
-            } catch (e: Exception) {
-                Log.e(TAG, "Extended advertising failed, attempting legacy fallback", e)
-                broadcastLegacy(adv, pdata)
-            }
-        } else {
-            broadcastLegacy(adv, pdata)
-        }
+        while (queue.size >= QUEUE_LIMIT) queue.poll()
+        queue.offer(secure)
+        pump()
     }
 
     @SuppressLint("MissingPermission")
-    private fun broadcastLegacy(adv: BluetoothLeAdvertiser, pdata: AdvertiseData) {
-        val settings = AdvertiseSettings.Builder()
-            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
-            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_HIGH)
-            .setConnectable(false)
-            .setTimeout(0)
-            .build()
+    private fun pump() {
+        if (!pumpRunning.compareAndSet(false, true)) return
+        handler.post {
+            try {
+                val frame = queue.poll() ?: return@post
+                val adv = advertiser ?: return@post
+                val adapter = bluetoothAdapter ?: return@post
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !adapter.isLeExtendedAdvertisingSupported) return@post
+                if (adapter.getLeMaximumAdvertisingDataLength() < AirHopPacketAuthenticator.SECURE_FRAME_SIZE + 3) return@post
 
-        try {
-            adv.startAdvertising(settings, pdata, legacyAdvCallback)
-            isAdvertising = true
-        } catch (e: Exception) {
-            Log.e(TAG, "Legacy advertising failed", e)
+                val data = AdvertiseData.Builder()
+                    .addServiceData(ProtocolConstants.PARCEL_SERVICE_UUID, frame)
+                    .setIncludeDeviceName(false)
+                    .setIncludeTxPowerLevel(false)
+                    .build()
+                val secondary = if (_isCodedPhySupported.value) BluetoothDevice.PHY_LE_CODED else BluetoothDevice.PHY_LE_1M
+                val params = AdvertisingSetParameters.Builder()
+                    .setLegacyMode(false)
+                    .setConnectable(false)
+                    .setScannable(false)
+                    .setPrimaryPhy(BluetoothDevice.PHY_LE_1M)
+                    .setSecondaryPhy(secondary)
+                    .setInterval(if (_isPowerSaveMode.value) AdvertisingSetParameters.INTERVAL_MEDIUM else AdvertisingSetParameters.INTERVAL_LOW)
+                    .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_HIGH)
+                    .build()
+
+                if (currentAdvSet == null) {
+                    adv.startAdvertisingSet(params, data, null, null, null, advertisingSetCallback)
+                } else {
+                    currentAdvSet?.setAdvertisingData(data)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "BLE advertising failed", e)
+            } finally {
+                pumpRunning.set(false)
+                if (queue.isNotEmpty()) handler.postDelayed({ pump() }, HOLD_MS)
+            }
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun stopAdvertising() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && currentAdvSet != null) {
-                advertiser?.stopAdvertisingSet(advertisingSetCallback)
-                currentAdvSet = null
-            }
-            advertiser?.stopAdvertising(legacyAdvCallback)
-            isAdvertising = false
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping advertising", e)
-        }
+        try { if (currentAdvSet != null) advertiser?.stopAdvertisingSet(advertisingSetCallback) } catch (_: Exception) {}
+        currentAdvSet = null
     }
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             val record = result?.scanRecord ?: return
+            val presence = record.getServiceData(presenceUuid)
+            if (presence != null) { handlePresence(presence, result.rssi); return }
             val serviceData = record.getServiceData(ProtocolConstants.PARCEL_SERVICE_UUID) ?: return
-
-            if (serviceData.size == ProtocolConstants.PACKET_SIZE &&
-                serviceData[0] == ProtocolConstants.AIRHOP_PREAMBLE) {
-
-                val deviceAddr = result.device?.address ?: "ANON_${result.rssi}"
-                updatePeerList(deviceAddr)
-
-                // Dispatch to packet receiver on calling thread (handled by BlindRelayManager)
-                packetReceiver(serviceData, result.rssi)
-            }
+            val packet = authenticator.unwrap(serviceData) ?: return
+            if (packet.size != ProtocolConstants.PACKET_SIZE || packet[0] != ProtocolConstants.AIRHOP_PREAMBLE) return
+            val address = result.device?.address ?: return
+            peers[address] = System.currentTimeMillis()
+            val cutoff = System.currentTimeMillis() - PEER_TTL_MS
+            peers.entries.removeIf { it.value < cutoff }
+            _activePeerCount.value = peers.size
+            scanExecutor.execute { packetReceiver(packet, result.rssi) }
         }
 
         override fun onBatchScanResults(results: MutableList<ScanResult>?) {
@@ -255,61 +218,121 @@ class BleMeshEngine(
         }
 
         override fun onScanFailed(errorCode: Int) {
-            Log.e(TAG, "BLE Scan failed with errorCode: $errorCode")
+            Log.e(TAG, "BLE scan failed: $errorCode")
         }
     }
 
-    private val advertisingSetCallback = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        object : AdvertisingSetCallback() {
-            override fun onAdvertisingSetStarted(
-                advertisingSet: AdvertisingSet?,
-                txPower: Int,
-                status: Int
-            ) {
-                if (status == ADVERTISE_SUCCESS) {
-                    currentAdvSet = advertisingSet
-                    Log.i(TAG, "Coded PHY Advertising Set started successfully (txPower=$txPower)")
-                } else {
-                    Log.w(TAG, "Advertising Set start failed with status: $status")
-                }
-            }
-
-            override fun onAdvertisingSetStopped(advertisingSet: AdvertisingSet?) {
-                currentAdvSet = null
-                Log.i(TAG, "Advertising Set stopped")
-            }
-        }
-    } else {
-        null
-    }
-
-    private val legacyAdvCallback = object : AdvertiseCallback() {
-        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
-            Log.i(TAG, "Legacy advertising started successfully")
-        }
-
-        override fun onStartFailure(errorCode: Int) {
-            Log.w(TAG, "Legacy advertising failed with errorCode: $errorCode")
-        }
-    }
-
-    private fun updatePeerList(address: String) {
-        val now = System.currentTimeMillis()
-        recentPeers.add(Pair(address, now))
-
-        // Evict entries older than 30 seconds
-        val cutoff = now - 30_000L
-        while (true) {
-            val head = recentPeers.peek() ?: break
-            if (head.second < cutoff) {
-                recentPeers.poll()
+    @SuppressLint("MissingPermission")
+    private fun startPresenceAdvertising() {
+        val adv = advertiser ?: return
+        val location = presenceLocationProvider?.invoke() ?: return
+        if (!location.third) return
+        val latE7 = (location.first * 1e7).toInt()
+        val lonE7 = (location.second * 1e7).toInt()
+        val payload = buildPresencePayload(latE7, lonE7, System.currentTimeMillis())
+        try {
+            val adapter = bluetoothAdapter ?: return
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !adapter.isLeExtendedAdvertisingSupported) return
+            val params = AdvertisingSetParameters.Builder()
+                .setLegacyMode(false)
+                .setConnectable(false)
+                .setScannable(false)
+                .setPrimaryPhy(BluetoothDevice.PHY_LE_1M)
+                .setSecondaryPhy(if (_isCodedPhySupported.value) BluetoothDevice.PHY_LE_CODED else BluetoothDevice.PHY_LE_1M)
+                .setInterval(AdvertisingSetParameters.INTERVAL_MEDIUM)
+                .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_HIGH)
+                .build()
+            val data = AdvertiseData.Builder()
+                .addServiceData(presenceUuid, payload)
+                .setIncludeDeviceName(false)
+                .setIncludeTxPowerLevel(false)
+                .build()
+            if (presenceAdvSet == null) {
+                adv.startAdvertisingSet(params, data, null, null, null, presenceAdvertisingSetCallback)
             } else {
-                break
+                presenceAdvSet?.setAdvertisingData(data)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "BLE presence advertising failed", e)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopPresenceAdvertising() {
+        try { if (presenceAdvSet != null) advertiser?.stopAdvertisingSet(presenceAdvertisingSetCallback) } catch (_: Exception) {}
+        presenceAdvSet = null
+    }
+
+    private val presenceRefresh = object : Runnable {
+        override fun run() {
+            if (bluetoothAdapter?.isEnabled == true) startPresenceAdvertising()
+            handler.postDelayed(this, 10_000L)
+        }
+    }
+
+    private fun buildPresencePayload(latE7: Int, lonE7: Int, timestampMs: Long): ByteArray {
+        val body = java.nio.ByteBuffer.allocate(25).order(java.nio.ByteOrder.BIG_ENDIAN).apply {
+            put(byteArrayOf('A'.code.toByte(), 'H'.code.toByte(), 'P'.code.toByte(), 'R'.code.toByte()))
+            putInt(nodeIdentity.intId())
+            putInt(latE7)
+            putInt(lonE7)
+            putLong(timestampMs)
+            put(1.toByte())
+        }.array()
+        return body + presenceMac(body)
+    }
+
+    private fun presenceMac(body: ByteArray): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(authenticator.exportKey().toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        return mac.doFinal(body).copyOf(8)
+    }
+
+    private fun handlePresence(payload: ByteArray, rssi: Int) {
+        if (payload.size != 33) return
+        val body = payload.copyOfRange(0, 25)
+        val tag = payload.copyOfRange(25, 33)
+        if (!java.security.MessageDigest.isEqual(presenceMac(body), tag)) return
+        val buffer = java.nio.ByteBuffer.wrap(body).order(java.nio.ByteOrder.BIG_ENDIAN)
+        val magic = ByteArray(4); buffer.get(magic)
+        if (!magic.contentEquals(byteArrayOf('A'.code.toByte(), 'H'.code.toByte(), 'P'.code.toByte(), 'R'.code.toByte()))) return
+        val nodeId = buffer.int
+        val lat = buffer.int / 1e7
+        val lon = buffer.int / 1e7
+        val timestamp = buffer.long
+        val relayCapable = buffer.get().toInt() != 0
+        val now = System.currentTimeMillis()
+        if (kotlin.math.abs(now - timestamp) > 120_000L) return
+        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return
+        presenceCallback?.invoke(nodeId, lat, lon, rssi)
+    }
+
+    private val presenceAdvertisingSetCallback = object : AdvertisingSetCallback() {
+        override fun onAdvertisingSetStarted(advertisingSet: AdvertisingSet?, txPower: Int, status: Int) {
+            if (status == ADVERTISE_SUCCESS) {
+                presenceAdvSet = advertisingSet
+                Log.i(TAG, "BLE presence advertising active")
+            } else {
+                Log.w(TAG, "BLE presence advertising start failed: $status")
+            }
+        }
+        override fun onAdvertisingSetStopped(advertisingSet: AdvertisingSet?) {
+            if (presenceAdvSet == advertisingSet) presenceAdvSet = null
+        }
+    }
+
+    private val advertisingSetCallback = object : AdvertisingSetCallback() {
+        override fun onAdvertisingSetStarted(advertisingSet: AdvertisingSet?, txPower: Int, status: Int) {
+            if (status == ADVERTISE_SUCCESS) {
+                currentAdvSet = advertisingSet
+                Log.i(TAG, "BLE extended advertising active")
+            } else {
+                Log.w(TAG, "BLE advertising start failed: $status")
             }
         }
 
-        // Count unique peer addresses
-        val uniqueCount = recentPeers.map { it.first }.toSet().size
-        _activePeerCount.value = uniqueCount
+        override fun onAdvertisingSetStopped(advertisingSet: AdvertisingSet?) {
+            if (currentAdvSet == advertisingSet) currentAdvSet = null
+        }
     }
 }

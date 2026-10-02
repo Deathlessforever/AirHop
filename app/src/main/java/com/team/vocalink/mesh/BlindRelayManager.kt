@@ -28,7 +28,8 @@ class BlindRelayManager(
     private val bleMeshEngine: BleMeshEngine,
     private val geofenceManager: GeofenceManager,
     private val dndBypassAlertManager: DndBypassAlertManager,
-    private val neuralTtsHook: NeuralTtsHook
+    private val neuralTtsHook: NeuralTtsHook,
+    context: android.content.Context
 ) {
     companion object {
         private const val TAG = "BlindRelayManager"
@@ -36,6 +37,7 @@ class BlindRelayManager(
 
     private val relayScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val bloomFilter = RotatingBloomFilter()
+    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
 
     private val _waterfallEvents = MutableSharedFlow<WaterfallLogItem>(replay = 50)
     val waterfallEvents: SharedFlow<WaterfallLogItem> = _waterfallEvents.asSharedFlow()
@@ -56,45 +58,34 @@ class BlindRelayManager(
             return
         }
 
-        // Fast-path extraction of 32-bit msg_id at offset 3 (little-endian)
-        val msgId = ByteBuffer.wrap(rawPacket, 3, 4).order(ByteOrder.LITTLE_ENDIAN).int
-
-        // Sub-millisecond duplicate detection
-        val isDuplicate = bloomFilter.checkAndAdd(msgId)
-        if (isDuplicate) {
-            // Drop immediately
-            return
-        }
-
         relayScope.launch {
-            processPacketPipeline(rawPacket, msgId, rssi)
+            processPacketPipeline(rawPacket, rssi)
         }
     }
 
-    private fun processPacketPipeline(rawPacket: ByteArray, preliminaryMsgId: Int, rssi: Int) {
+    private fun processPacketPipeline(rawPacket: ByteArray, rssi: Int) {
         // 1. Decode and automatic RS(40,32) error correction in Native C++
         val decodeResult: PacketRepairResult? = AirHopNative.decodeAndRepairPacket(rawPacket)
         if (decodeResult == null || !decodeResult.success) {
-            Log.w(TAG, "Packet $preliminaryMsgId dropped: unrecoverable RS FEC errors (>4 bytes corrupted)")
+            Log.w(TAG, "Packet dropped: FEC decode failed")
             return
         }
 
         val repairedBytes = decodeResult.repairedPacket ?: rawPacket
         val msgId = decodeResult.msgId
+
+        // Duplicate suppression is performed after FEC repair so corrupted msg_id bytes
+        // cannot poison the deduplication table with a false identity.
+        if (bloomFilter.checkAndAdd(msgId)) return
         val flags = decodeResult.flags
         val ttl = decodeResult.ttl
         val latE7 = decodeResult.latE7
         val lonE7 = decodeResult.lonE7
         val tokens = decodeResult.tokens ?: ByteArray(13)
-
-        // Dispatch to ChatManager / UI
-        onPacketDecoded?.invoke(decodeResult)
-
-        // If this is an ACK delivery receipt, finish pipeline without sounding sirens
         val isAck = (flags and ProtocolConstants.FLAG_ACK.toInt()) != 0
-        if (isAck) {
-            return
-        }
+        val destinationId = decodeResult.targetZone
+        val isLocalDestination = destinationId == 0 || destinationId == nodeIdentity.intId()
+        if (isAck || isLocalDestination) onPacketDecoded?.invoke(decodeResult)
 
         // 2. Geofence evaluation against NavIC / GPS coordinates
         val geofenceStatus = geofenceManager.checkPoint(latE7 / 1e7, lonE7 / 1e7)
@@ -118,9 +109,11 @@ class BlindRelayManager(
             Log.i(TAG, "Packet $msgId reached hop limit (TTL=$ttl), not relaying further")
         }
 
+        if (isAck) return
+
         // 4. Alert & SOS Handling
         val isEmergencySos = decodeResult.isEmergencySos
-        if (isEmergencySos && inGeofence) {
+        if (isLocalDestination && isEmergencySos && inGeofence) {
             relayAction = PacketAction.ALERT_TRIGGERED
             Log.w(TAG, "EMERGENCY SOS TARGETING CURRENT GEOFENCE! Triggering DND Bypass")
             dndBypassAlertManager.triggerSosAlarm(
@@ -131,7 +124,7 @@ class BlindRelayManager(
         }
 
         // 5. Neural Indic Voice Synthesis hook
-        if (tokens.any { it != 0.toByte() }) {
+        if (isLocalDestination && tokens.any { it != 0.toByte() }) {
             neuralTtsHook.synthesizeAndPlayTokens(
                 tokens = tokens,
                 languageId = (flags and ProtocolConstants.FLAG_LANG_MASK.toInt()).toByte()

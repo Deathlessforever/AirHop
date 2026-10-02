@@ -71,6 +71,8 @@ class AirHopMeshService : Service() {
         private set
     lateinit var chatManager: com.team.vocalink.chat.ChatManager
         private set
+    lateinit var nodePresenceDirectory: com.team.vocalink.mesh.NodePresenceDirectory
+        private set
 
     private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
@@ -91,8 +93,14 @@ class AirHopMeshService : Service() {
 
         createNotificationChannel()
 
+        // Enter the foreground before initializing the radio stack.
+        // This avoids long engine initialization consuming the Android
+        // foreground-service startup window.
+        startForegroundServiceNotification()
+
         // Initialize Core Engines
         geofenceManager = GeofenceManager(this)
+        nodePresenceDirectory = com.team.vocalink.mesh.NodePresenceDirectory(this)
         dndAlertManager = DndBypassAlertManager(this)
         neuralTtsHook = NeuralTtsHook(this)
         offlineTtsEngine = com.team.vocalink.alert.OfflineTtsEngine(this)
@@ -105,11 +113,19 @@ class AirHopMeshService : Service() {
             blindRelayManager.onRawPacketScanned(rawPacket, -50)
         }
 
+        bleMeshEngine.setSecondaryBroadcaster { packet -> wifiAwareEngine.sendBurstPacket(packet) }
+        bleMeshEngine.setPresenceLocationProvider {
+            val loc = geofenceManager.currentLocation.value
+            if (loc == null || !nodePresenceDirectory.visible) null else Triple(loc.latitude, loc.longitude, true)
+        }
+        bleMeshEngine.setPresenceObserver { id, lat, lon, rssi -> nodePresenceDirectory.observe(id, lat, lon, rssi, true) }
+
         blindRelayManager = BlindRelayManager(
             bleMeshEngine = bleMeshEngine,
             geofenceManager = geofenceManager,
             dndBypassAlertManager = dndAlertManager,
-            neuralTtsHook = neuralTtsHook
+            neuralTtsHook = neuralTtsHook,
+            context = this
         )
 
         chatManager = com.team.vocalink.chat.ChatManager(this, bleMeshEngine, offlineTtsEngine) { msgId ->
@@ -122,13 +138,13 @@ class AirHopMeshService : Service() {
 
         audioIngestEngine = AudioIngestEngine(this) { tokens ->
             val loc = geofenceManager.currentLocation.value
-            val latE7 = ((loc?.latitude ?: ProtocolConstants.BENCHMARK_MYSURU_LAT) * 1e7).toInt()
-            val lonE7 = ((loc?.longitude ?: ProtocolConstants.BENCHMARK_MYSURU_LON) * 1e7).toInt()
+            val latE7 = ((loc?.latitude ?: 0.0) * 1e7).toInt()
+            val lonE7 = ((loc?.longitude ?: 0.0) * 1e7).toInt()
 
             blindRelayManager.broadcastOriginPacket(
                 flags = ProtocolConstants.LANG_KANNADA,
                 ttl = ProtocolConstants.DEFAULT_TTL,
-                targetZone = 0x01,
+                targetZone = 0,
                 latE7 = latE7,
                 lonE7 = lonE7,
                 tokens = tokens
@@ -153,7 +169,6 @@ class AirHopMeshService : Service() {
             return START_NOT_STICKY
         }
 
-        startForegroundServiceNotification()
         return START_STICKY
     }
 
@@ -197,7 +212,7 @@ class AirHopMeshService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AirHop Disaster Transceiver Active")
-            .setContentText("Listening for BLE Coded PHY (S=8) & Wi-Fi Aware mesh frames")
+            .setContentText("AirHop mesh relay active — waiting for nearby devices")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -209,7 +224,7 @@ class AirHopMeshService : Service() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)

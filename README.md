@@ -102,3 +102,22 @@ Output APK location:
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+
+## Production validation
+
+The production branch requires Android build/test CI plus a real-device BLE/Wi-Fi Aware matrix before claiming radio interoperability.
+
+
+## Physical validation gate
+
+Software CI cannot prove radio interoperability. Before release, test physical devices for:
+- A→B→C→D delivery and end-to-end acknowledgment
+- relay power-off/recovery
+- corrupted-frame/FEC handling
+- restart/persistence behavior
+- BLE extended advertising and coded-PHY capability differences
+- Wi-Fi Aware discovery/reconnect
+- 1/6/24-hour battery, memory, crash and ANR soak tests
+
+Devices that lack the required radio capability must be reported as unsupported rather than presented as long-range mesh nodes.

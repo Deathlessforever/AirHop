@@ -2,6 +2,10 @@ package com.team.vocalink.chat
 
 import android.content.Context
 import android.util.Log
+import android.util.Base64
+import kotlinx.coroutines.delay
+import org.json.JSONArray
+import org.json.JSONObject
 import com.team.vocalink.alert.OfflineTtsEngine
 import com.team.vocalink.core.AirHopNative
 import com.team.vocalink.core.ChatMessage
@@ -32,21 +36,32 @@ class ChatManager(
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val prefs = context.getSharedPreferences("airhop_messages", Context.MODE_PRIVATE)
+    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
+    private val storageKey = "messages_v1"
+    private val outboxKey = "outbox_v1"
 
-    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    private val _messages = MutableStateFlow<List<ChatMessage>>(loadMessages())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     // Event for when a blue tick delivery occurs
     private val _deliveryEvent = MutableSharedFlow<Int>()
     val deliveryEvent: SharedFlow<Int> = _deliveryEvent.asSharedFlow()
 
+    init {
+        val raw = prefs.getString(outboxKey, null)
+        val array = raw?.let { runCatching { JSONArray(it) }.getOrNull() }
+        if (array != null) for (i in 0 until array.length()) retryOutbox(array.getJSONObject(i).optInt("id"))
+    }
+
     fun sendMessage(
         text: String,
         phraseId: Int = 1,
         isSos: Boolean = false,
         lang: Byte = ProtocolConstants.LANG_ENGLISH,
-        lat: Double = ProtocolConstants.BENCHMARK_MYSURU_LAT,
-        lon: Double = ProtocolConstants.BENCHMARK_MYSURU_LON
+        lat: Double = 0.0,
+        lon: Double = 0.0,
+        destinationId: Int = 0
     ) {
         val tokens = DisasterPhraseCodebook.encodeTextToTokens(text, phraseId)
         var flags = lang.toInt()
@@ -59,7 +74,7 @@ class ChatManager(
         val packetBytes = AirHopNative.encodePacket(
             flags = flags.toByte(),
             ttl = ProtocolConstants.DEFAULT_TTL,
-            targetZone = 0x01,
+            targetZone = destinationId,
             latE7 = latE7,
             lonE7 = lonE7,
             tokens = tokens,
@@ -71,6 +86,7 @@ class ChatManager(
             .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
 
         onMessageSent?.invoke(msgId)
+        persistOutbox(msgId, packetBytes)
 
         val chatMsg = ChatMessage(
             id = msgId,
@@ -81,25 +97,28 @@ class ChatManager(
             lat = lat,
             lon = lon,
             hopCount = 1,
-            status = MessageStatus.SENT
+            status = MessageStatus.SENDING
         )
 
         _messages.value = _messages.value + chatMsg
+        persistMessages()
 
         // Broadcast over BLE + UDP mesh
         bleMeshEngine.broadcastPacket(packetBytes)
-        Log.i(TAG, "Sent message $msgId over offline mesh: '$text'")
+        currentMessageState(msgId, MessageStatus.SENT)
+        Log.i(TAG, "Queued message $msgId over offline mesh: '$text'")
     }
 
     fun handleIncomingPacket(repairResult: PacketRepairResult) {
         val flags = repairResult.flags
         val msgId = repairResult.msgId
         val targetZone = repairResult.targetZone
+        val destinationId = targetZone
         val isAck = (flags and ProtocolConstants.FLAG_ACK.toInt()) != 0
 
         if (isAck) {
             // This is an ACK delivery confirmation from User 2!
-            val acknowledgedMsgId = targetZone
+            val acknowledgedMsgId = repairResult.targetZone
             scope.launch {
                 val current = _messages.value.toMutableList()
                 val index = current.indexOfFirst { it.id == acknowledgedMsgId && it.isFromMe }
@@ -111,14 +130,19 @@ class ChatManager(
                         latencyMs = latency
                     )
                     _messages.value = current
+                    persistMessages()
                     _deliveryEvent.emit(acknowledgedMsgId)
-                    Log.i(TAG, "BLUE TICK CONFIRMED for message ! Latency: ms")
+                    removeOutbox(acknowledgedMsgId)
+                    Log.i(TAG, "BLUE TICK CONFIRMED for message $acknowledgedMsgId! Latency: $latency ms")
                 }
             }
             return
         }
 
-        // Normal message received from peer (User 1 or User 2)
+        // Directed frames are consumed only by their destination; zero is broadcast.
+        if (destinationId != 0 && destinationId != nodeIdentity.intId()) return
+
+        // Normal message received from peer
         scope.launch {
             val existing = _messages.value.find { it.id == msgId }
             if (existing != null) return@launch // Already have it
@@ -140,7 +164,8 @@ class ChatManager(
             )
 
             _messages.value = _messages.value + incoming
-            Log.i(TAG, "Received message from peer: ''")
+            persistMessages()
+            Log.i(TAG, "Received message from peer: $msgId")
 
             // Speak aloud automatically on User 2's phone!
             offlineTtsEngine.speak(text, lang)
@@ -150,13 +175,117 @@ class ChatManager(
         }
     }
 
+    private fun persistOutbox(msgId: Int, packet: ByteArray) {
+        val out = prefs.getString(outboxKey, null)?.let { runCatching { JSONArray(it) }.getOrNull() } ?: JSONArray()
+        val obj = JSONObject().apply {
+            put("id", msgId)
+            put("packet", Base64.encodeToString(packet, Base64.NO_WRAP))
+        }
+        out.put(obj)
+        prefs.edit().putString(outboxKey, out.toString()).apply()
+    }
+
+    private fun removeOutbox(msgId: Int) {
+        val raw = prefs.getString(outboxKey, null) ?: return
+        val old = runCatching { JSONArray(raw) }.getOrNull() ?: return
+        val next = JSONArray()
+        for (i in 0 until old.length()) if (old.getJSONObject(i).optInt("id") != msgId) next.put(old.getJSONObject(i))
+        prefs.edit().putString(outboxKey, next.toString()).apply()
+    }
+
+    private fun retryOutbox(msgId: Int) {
+        scope.launch {
+            repeat(6) {
+                delay(5_000)
+                val raw = prefs.getString(outboxKey, null) ?: return@launch
+                val array = runCatching { JSONArray(raw) }.getOrNull() ?: return@launch
+                for (i in 0 until array.length()) {
+                    val item = array.getJSONObject(i)
+                    if (item.optInt("id") == msgId) {
+                        val packet = Base64.decode(item.getString("packet"), Base64.NO_WRAP)
+                        bleMeshEngine.broadcastPacket(packet)
+                    }
+                }
+                if (!isOutboxPending(msgId)) return@launch
+            }
+        }
+    }
+
+    private fun isOutboxPending(msgId: Int): Boolean {
+        val raw = prefs.getString(outboxKey, null) ?: return false
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return false
+        for (i in 0 until array.length()) {
+            if (array.getJSONObject(i).optInt("id") == msgId) return true
+        }
+        return false
+    }
+
+    private fun currentMessageState(id: Int, status: MessageStatus) {
+        val current = _messages.value.toMutableList()
+        val index = current.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            current[index] = current[index].copy(status = status)
+            _messages.value = current
+            persistMessages()
+        }
+    }
+
+    private fun persistMessages() {
+        val array = JSONArray()
+        _messages.value.takeLast(200).forEach { message ->
+            array.put(JSONObject().apply {
+                put("id", message.id)
+                put("text", message.text)
+                put("sender", message.senderName)
+                put("fromMe", message.isFromMe)
+                put("timestamp", message.timestamp)
+                put("lat", message.lat)
+                put("lon", message.lon)
+                put("hops", message.hopCount)
+                put("status", message.status.name)
+                if (message.latencyMs == null) put("latencyMs", JSONObject.NULL)
+                else put("latencyMs", message.latencyMs)
+            })
+        }
+        prefs.edit().putString(storageKey, array.toString()).apply()
+    }
+
+    private fun loadMessages(): List<ChatMessage> {
+        val raw = prefs.getString(storageKey, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            buildList(array.length()) {
+                for (i in 0 until array.length()) {
+                    val o = array.getJSONObject(i)
+                    add(ChatMessage(
+                        id = o.getInt("id"),
+                        text = o.getString("text"),
+                        senderName = o.getString("sender"),
+                        isFromMe = o.getBoolean("fromMe"),
+                        timestamp = o.getLong("timestamp"),
+                        lat = o.optDouble("lat", 0.0),
+                        lon = o.optDouble("lon", 0.0),
+                        hopCount = o.optInt("hops", 1),
+                        status = runCatching {
+                            MessageStatus.valueOf(o.optString("status", MessageStatus.SENT.name))
+                        }.getOrDefault(MessageStatus.SENT),
+                        latencyMs = if (o.isNull("latencyMs")) null else o.optLong("latencyMs")
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Stored AirHop message history could not be restored", e)
+            emptyList()
+        }
+    }
+
     private fun sendAckPacket(targetMsgId: Int, lang: Byte) {
         val ackFlags = (ProtocolConstants.FLAG_ACK.toInt() or lang.toInt()).toByte()
         val emptyTokens = ByteArray(13)
         val ackBytes = AirHopNative.encodePacket(
             flags = ackFlags,
             ttl = 5.toByte(),
-            targetZone = targetMsgId, // Target message to acknowledge
+            targetZone = targetMsgId, // ACK carries the acknowledged message ID
             latE7 = 0,
             lonE7 = 0,
             tokens = emptyTokens,

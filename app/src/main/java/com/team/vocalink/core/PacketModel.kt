@@ -7,6 +7,10 @@ object ProtocolConstants {
     const val AIRHOP_PREAMBLE: Byte = 0x7E
     const val DEFAULT_TTL: Byte = 10
     const val PACKET_SIZE: Int = 40
+    const val NODE_ID_SIZE: Int = 4
+    const val MESSAGE_ID_SIZE: Int = 4
+    const val MAX_REASSEMBLY_CHUNKS: Int = 64
+    const val REPLAY_WINDOW_MS: Long = 120_000L
     const val DATA_SIZE: Int = 32
     const val PARITY_SIZE: Int = 8
     const val TOKEN_COUNT: Int = 13
@@ -47,6 +51,7 @@ data class AirHopPacket(
     val ttl: Byte = ProtocolConstants.DEFAULT_TTL,
     val msgId: Int,
     val targetZone: Int,
+    val destinationId: Int = targetZone,
     val latE7: Int,
     val lonE7: Int,
     val tokens: ByteArray,
@@ -146,8 +151,8 @@ data class ChatMessage(
     val senderName: String,
     val isFromMe: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
-    val lat: Double = ProtocolConstants.BENCHMARK_MYSURU_LAT,
-    val lon: Double = ProtocolConstants.BENCHMARK_MYSURU_LON,
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
     val hopCount: Int = 1,
     var status: MessageStatus = MessageStatus.SENT,
     val latencyMs: Long? = null

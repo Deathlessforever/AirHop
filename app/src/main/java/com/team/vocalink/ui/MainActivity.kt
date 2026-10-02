@@ -26,8 +26,8 @@ import com.team.vocalink.R
 import com.team.vocalink.core.ChatMessage
 import com.team.vocalink.core.DisasterPhraseCodebook
 import com.team.vocalink.core.MessageStatus
-import com.team.vocalink.core.PacketRepairResult
 import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.security.AirHopPacketAuthenticator
 import android.net.Uri
 import com.team.vocalink.alert.EmergencySurvivalGuide
 import com.team.vocalink.alert.FlashlightStrobeManager
@@ -77,8 +77,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnMicVoice: Button
     private lateinit var etMessageInput: EditText
     private lateinit var btnSendMessage: Button
-    private lateinit var btnDemoScenarios: Button
     private lateinit var btnExportLogs: Button
+    private lateinit var btnSecurity: Button
 
     // Quick Disaster Chips
     private lateinit var chipPresetFlood: Button
@@ -152,8 +152,8 @@ class MainActivity : AppCompatActivity() {
         btnMicVoice = findViewById(R.id.btnMicVoice)
         etMessageInput = findViewById(R.id.etMessageInput)
         btnSendMessage = findViewById(R.id.btnSendMessage)
-        btnDemoScenarios = findViewById(R.id.btnDemoScenarios)
         btnExportLogs = findViewById(R.id.btnExportLogs)
+        btnSecurity = findViewById(R.id.btnSecurity)
 
         chipPresetFlood = findViewById(R.id.chipPresetFlood)
         chipPresetMedical = findViewById(R.id.chipPresetMedical)
@@ -192,7 +192,7 @@ class MainActivity : AppCompatActivity() {
 
         // Nearby Relays & Zero-Contact Explanation Dialog
         btnNearbyPeers.setOnClickListener {
-            showRelayExplanationDialog()
+            startActivity(Intent(this, AirHopMapActivity::class.java))
         }
 
         // Emergency SOS Siren & Optical Strobe Beacon Toggle
@@ -252,12 +252,9 @@ class MainActivity : AppCompatActivity() {
             sendEmergencyMessage(msg, phraseIdOverride = 5)
         }
 
-        // Demo Peer ➔ Blue Tick Simulator (Loopback evaluation for 1 phone)
-        btnDemoScenarios.setOnClickListener {
-            simulatePeerExchangeAndBlueTick()
-        }
-
         // Export Logs as CSV
+        btnSecurity.setOnClickListener { showSecurityDialog() }
+
         btnExportLogs.setOnClickListener {
             exportTriageLogs()
         }
@@ -351,28 +348,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showRelayExplanationDialog() {
-        val activeCount = meshService?.bleMeshEngine?.activePeerCount?.value ?: 2
-        val displayCount = if (activeCount > 0) activeCount else 2
+        val activeCount = meshService?.bleMeshEngine?.activePeerCount?.value ?: 0
+        val message = """
+            WHY ARE THERE NO PHONE CONTACTS?
+            In severe disasters, cellular towers and internet may fail. AirHop does not require SIM contacts.
+
+            HOW DOES SHARING WORK?
+            Any nearby phone with AirHop can discover other AirHop phones and act as a relay node.
+
+            HOW DOES THE PACKET HOP?
+            Messages are forwarded over supported offline device-to-device transports. Practical range depends on hardware, environment, and transport availability.
+
+            DELIVERY CONFIRMATION:
+            A message is marked delivered only when a real acknowledgment matching its message ID reaches this device.
+
+            ACTIVE AIRHOP RELAYS OBSERVED:
+            • Active nodes observed by this device: $activeCount
+        """.trimIndent()
 
         AlertDialog.Builder(this)
-            .setTitle("📡 AirHop Mesh: Zero Contacts Needed")
-            .setMessage(
-                "WHY ARE THERE NO PHONE CONTACTS?\n" +
-                "In severe disasters (floods, earthquakes, cyclones), cellular towers & internet grids completely fail. You cannot dial phone numbers or look up SIM contacts.\n\n" +
-                "HOW DOES SHARING WORK?\n" +
-                "Any nearby phone with AirHop installed automatically discovers other phones and acts as an autonomous relay node.\n\n" +
-                "HOW DOES THE PACKET HOP?\n" +
-                "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over Bluetooth LE Coded PHY (up to 1km) and local offline mesh until it reaches rescue personnel.\n\n" +
-                "GUARANTEED BLUE TICK (✓✓):\n" +
-                "When Phone 2 receives your alert and reads it aloud, it automatically returns an encrypted ACK packet. Your single checkmark (✓) instantly turns into a WhatsApp-style Double Blue Tick (✓✓)!\n\n" +
-                "ACTIVE AIRHOP RELAYS IN RANGE:\n" +
-                "• Relay Node #A491 (RSSI -42 dBm, ~1.5m away)\n" +
-                "• Relay Node #B720 (Hop Count 1, ~25m away)\n" +
-                "• Total Active Nodes: $displayCount in local mesh"
-            )
-            .setPositiveButton("📡 PING ALL RELAYS") { _, _ ->
-                pingMeshRelays()
-            }
+            .setTitle("AirHop Mesh: Offline Relay")
+            .setMessage(message)
+            .setPositiveButton("PING RELAYS") { _, _ -> pingMeshRelays() }
             .setNegativeButton("GOT IT", null)
             .show()
     }
@@ -412,8 +409,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val loc = service.geofenceManager.currentLocation.value
-        val lat = loc?.latitude ?: ProtocolConstants.BENCHMARK_MYSURU_LAT
-        val lon = loc?.longitude ?: ProtocolConstants.BENCHMARK_MYSURU_LON
+        val lat = loc?.latitude ?: 0.0
+        val lon = loc?.longitude ?: 0.0
 
         val phraseId = phraseIdOverride ?: DisasterPhraseCodebook.getPhraseIdForText(text)
 
@@ -430,65 +427,34 @@ class MainActivity : AppCompatActivity() {
         window.decorView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
     }
 
-    private fun simulatePeerExchangeAndBlueTick() {
-        val service = meshService ?: return
-
-        // 1. Send User 1 message in chosen language
-        val phraseId = 1
-        val alertText = DisasterPhraseCodebook.getPhrase(phraseId, selectedLanguage.langByte)
-        sendEmergencyMessage(alertText, phraseIdOverride = phraseId)
-
-        Toast.makeText(this, "User 1 sent packet over BLE... Single tick ✓", Toast.LENGTH_SHORT).show()
-
-        // 2. Simulate User 2 receiving it after 280ms -> Speaks aloud in selected language -> Dispatches ACK
-        rvChatMessages.postDelayed({
-            val lastSent = service.chatManager.messages.value.lastOrNull { it.isFromMe }
-            if (lastSent != null) {
-                // User 2 device speaks aloud in selected language
-                service.offlineTtsEngine.speak(alertText, selectedLanguage.langByte)
-
-                // Trigger ACK back to User 1
-                service.chatManager.handleIncomingPacket(
-                    PacketRepairResult(
-                        success = true,
-                        correctedBytes = 0,
-                        hadErrors = false,
-                        repairedPacket = null,
-                        msgId = 9999,
-                        flags = (ProtocolConstants.FLAG_ACK.toInt() or selectedLanguage.langByte.toInt()),
-                        ttl = 5,
-                        targetZone = lastSent.id, // target message confirmed
-                        latE7 = 0,
-                        lonE7 = 0,
-                        tokens = null
-                    )
-                )
-
-                window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                Toast.makeText(this, "User 2 received & spoke! Double Blue Tick ✓✓ activated!", Toast.LENGTH_LONG).show()
-
-                // 3. User 2 sends reply 1.2s later in selected language
-                rvChatMessages.postDelayed({
-                    val replyPhraseId = 6
-                    val replyText = DisasterPhraseCodebook.getPhrase(replyPhraseId, selectedLanguage.langByte)
-                    service.chatManager.handleIncomingPacket(
-                        PacketRepairResult(
-                            success = true,
-                            correctedBytes = 0,
-                            hadErrors = false,
-                            repairedPacket = null,
-                            msgId = (1000..9999).random(),
-                            flags = selectedLanguage.langByte.toInt(),
-                            ttl = 8,
-                            targetZone = 0x01,
-                            latE7 = (12.2965 * 1e7).toInt(),
-                            lonE7 = (76.6400 * 1e7).toInt(),
-                            tokens = DisasterPhraseCodebook.encodeTextToTokens(replyText, replyPhraseId)
-                        )
-                    )
-                }, 1200)
+    private fun showSecurityDialog() {
+        val auth = AirHopPacketAuthenticator(this)
+        val currentKey = auth.exportKey()
+        val input = EditText(this).apply {
+            setText(currentKey)
+            hint = "256-bit shared AirHop key"
+            setSingleLine(true)
+            setSelectAllOnFocus(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Secure AirHop mesh")
+            .setMessage("Use the same 256-bit group key on every phone that should participate in the same private mesh.")
+            .setView(input)
+            .setPositiveButton("Save key") { _, _ ->
+                try {
+                    auth.importKey(input.text.toString())
+                    Toast.makeText(this, "Mesh security key saved.", Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Invalid key. Use the generated 256-bit value.", Toast.LENGTH_LONG).show()
+                }
             }
-        }, 320)
+            .setNeutralButton("Copy key") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AirHop key", currentKey))
+                Toast.makeText(this, "Key copied. Share it only with trusted devices.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun observeServiceData() {
@@ -514,9 +480,24 @@ class MainActivity : AppCompatActivity() {
 
         // 3. Observe Peer Counts and update the Zero-Contact banner
         lifecycleScope.launch {
+            service.bleMeshEngine.isCodedPhySupported.collectLatest { supported ->
+                tvBleStatus.text = if (supported) "Bluetooth: extended + coded" else "Bluetooth: extended unavailable"
+            }
+        }
+
+        lifecycleScope.launch {
+            service.wifiAwareEngine.isAwareAvailable.collectLatest { available ->
+                tvWifiAwareStatus.text = if (available) "Wi-Fi Aware: available" else "Wi-Fi Aware: unavailable"
+            }
+        }
+
+        lifecycleScope.launch {
             service.bleMeshEngine.activePeerCount.collectLatest { count ->
-                val displayCount = if (count > 0) count else 2
-                btnNearbyPeers.text = "🟢 $displayCount Nearby Relays Active • Zero Contacts Needed [ℹ️ Tap Info]"
+                btnNearbyPeers.text = if (count == 0) {
+                    "No nearby AirHop nodes observed"
+                } else {
+                    "🟢 $count nearby AirHop nodes observed"
+                }
             }
         }
 
@@ -571,7 +552,7 @@ class MainActivity : AppCompatActivity() {
             if (pm != null && !pm.isIgnoringBatteryOptimizations(pkg)) {
                 try {
                     val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = android.net.Uri.parse("package:")
+                        data = android.net.Uri.parse("package:$pkg")
                     }
                     startActivity(intent)
                 } catch (_: Exception) {}
@@ -591,6 +572,7 @@ class MainActivity : AppCompatActivity() {
             perms.add(Manifest.permission.BLUETOOTH_SCAN)
             perms.add(Manifest.permission.BLUETOOTH_ADVERTISE)
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+            perms.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

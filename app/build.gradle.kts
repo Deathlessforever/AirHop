@@ -1,16 +1,15 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
     namespace = "com.team.vocalink"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.team.vocalink"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0.0"
 
@@ -47,9 +46,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     externalNativeBuild {
         cmake {
@@ -77,6 +73,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.test:core:1.6.1")
     testImplementation("org.json:json:20240303")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 }
