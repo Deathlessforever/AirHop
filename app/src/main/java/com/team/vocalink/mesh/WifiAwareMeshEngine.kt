@@ -61,7 +61,8 @@ class WifiAwareMeshEngine(
     private val connectivity =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val auth = AirHopPacketAuthenticator(context)
-    private val ioExecutor: ExecutorService = Executors.newCachedThreadPool()
+    private var ioExecutor: ExecutorService = Executors.newCachedThreadPool()
+    private val networkCallbacks = ConcurrentHashMap.newKeySet<ConnectivityManager.NetworkCallback>()
 
     private var awareSession: WifiAwareSession? = null
     private var publishSession: PublishDiscoverySession? = null
@@ -117,6 +118,7 @@ class WifiAwareMeshEngine(
     @SuppressLint("MissingPermission")
     fun start() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !_available.value) return
+        if (ioExecutor.isShutdown || ioExecutor.isTerminated) ioExecutor = Executors.newCachedThreadPool()
 
         try {
             context.registerReceiver(
