@@ -48,7 +48,7 @@ class BleMeshEngine(
     private var isScanning = false
 
     private val authenticator = AirHopPacketAuthenticator(context)
-    private val udpMeshSocket = UdpMeshSocket(packetReceiver)
+    private val udpMeshSocket = UdpMeshSocket(context, packetReceiver)
     private val queue = ConcurrentLinkedQueue<ByteArray>()
     private val pumpRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
