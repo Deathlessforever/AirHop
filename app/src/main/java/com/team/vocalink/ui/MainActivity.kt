@@ -124,6 +124,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val micPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) launchVoiceRecognizer()
+        else Toast.makeText(this, "Microphone permission denied. Typed messages still work.", Toast.LENGTH_SHORT).show()
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            toggleSosSirenAndStrobe()
+        } else {
+            val service = meshService
+            if (service != null) {
+                isSosSirenActive = true
+                try { service.dndAlertManager.triggerSosAlarm(loopContinuous = true) } catch (_: Exception) {}
+                sendEmergencyMessage("EMERGENCY SOS BROADCAST: IMMEDIATE LIFE DANGER!", isSos = true, phraseIdOverride = 1)
+                Toast.makeText(this, "SOS mesh broadcast sent. Flashlight disabled.", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "SOS mesh is not ready yet.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
