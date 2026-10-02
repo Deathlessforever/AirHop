@@ -15,6 +15,7 @@ import com.team.vocalink.core.PacketRepairResult
 import com.team.vocalink.core.ProtocolConstants
 import com.team.vocalink.mesh.BleMeshEngine
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
