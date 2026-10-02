@@ -570,27 +570,40 @@ class MainActivity : AppCompatActivity() {
     private fun requestMeshPermissions() {
         val perms = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA
+            Manifest.permission.ACCESS_COARSE_LOCATION
         )
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             perms.add(Manifest.permission.BLUETOOTH_SCAN)
             perms.add(Manifest.permission.BLUETOOTH_ADVERTISE)
             perms.add(Manifest.permission.BLUETOOTH_CONNECT)
             perms.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-
-        if (perms.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
-            startAndBindMeshService()
-            return
+        val missing = perms.filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
         }
-        permissionLauncher.launch(perms.toTypedArray())
+        if (missing.isEmpty()) startAndBindMeshService()
+        else permissionLauncher.launch(missing.toTypedArray())
+    }
+
+    private fun ensureMicrophonePermissionThenVoice() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            launchVoiceRecognizer()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun ensureCameraPermissionThenSos() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            toggleSosSirenAndStrobe()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     override fun onDestroy() {
