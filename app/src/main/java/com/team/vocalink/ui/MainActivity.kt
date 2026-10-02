@@ -573,7 +573,7 @@ class MainActivity : AppCompatActivity() {
             if (pm != null && !pm.isIgnoringBatteryOptimizations(pkg)) {
                 try {
                     val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = android.net.Uri.parse("package:")
+                        data = android.net.Uri.parse("package:$pkg")
                     }
                     startActivity(intent)
                 } catch (_: Exception) {}
