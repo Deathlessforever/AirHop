@@ -197,7 +197,7 @@ class AirHopMeshService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AirHop Disaster Transceiver Active")
-            .setContentText("Listening for BLE Coded PHY (S=8) & Wi-Fi Aware mesh frames")
+            .setContentText("AirHop mesh relay active — waiting for nearby devices")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -209,7 +209,7 @@ class AirHopMeshService : Service() {
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
