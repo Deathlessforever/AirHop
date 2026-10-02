@@ -105,7 +105,7 @@ class AirHopMeshService : Service() {
             blindRelayManager.onRawPacketScanned(rawPacket, -50)
         }
 
-        blindRelayManager = BlindRelayManager(
+        bleMeshEngine.setSecondaryBroadcaster { packet -> wifiAwareEngine.sendBurstPacket(packet) }\n\n        blindRelayManager = BlindRelayManager(
             bleMeshEngine = bleMeshEngine,
             geofenceManager = geofenceManager,
             dndBypassAlertManager = dndAlertManager,
