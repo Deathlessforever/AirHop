@@ -92,9 +92,6 @@ class BlindRelayManager(
 
         // If this is an ACK delivery receipt, finish pipeline without sounding sirens
         val isAck = (flags and ProtocolConstants.FLAG_ACK.toInt()) != 0
-        if (isAck) {
-            return
-        }
 
         // 2. Geofence evaluation against NavIC / GPS coordinates
         val geofenceStatus = geofenceManager.checkPoint(latE7 / 1e7, lonE7 / 1e7)
@@ -117,6 +114,8 @@ class BlindRelayManager(
             relayAction = PacketAction.DROPPED_TTL
             Log.i(TAG, "Packet $msgId reached hop limit (TTL=$ttl), not relaying further")
         }
+
+        if (isAck) return
 
         // 4. Alert & SOS Handling
         val isEmergencySos = decodeResult.isEmergencySos
