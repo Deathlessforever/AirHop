@@ -441,8 +441,15 @@ class WifiAwareMeshEngine(
 
                 override fun onLost(network: Network) {
                     Log.d(TAG, "Wi-Fi Aware network lost: " + network.networkHandle)
+                    networkCallbacks.remove(this)
+                    try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) {}
                 }
-            }
+
+                override fun onUnavailable() {
+                    networkCallbacks.remove(this)
+                    try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) {}
+                }
+            }.also { networkCallbacks.add(it) }
         )
     }
 
