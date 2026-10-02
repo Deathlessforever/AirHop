@@ -349,37 +349,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun showRelayExplanationDialog() {
         val activeCount = meshService?.bleMeshEngine?.activePeerCount?.value ?: 0
+        val message = """
+            WHY ARE THERE NO PHONE CONTACTS?
+            In severe disasters, cellular towers and internet may fail. AirHop does not require SIM contacts.
+
+            HOW DOES SHARING WORK?
+            Any nearby phone with AirHop can discover other AirHop phones and act as a relay node.
+
+            HOW DOES THE PACKET HOP?
+            Messages are forwarded over supported offline device-to-device transports. Practical range depends on hardware, environment, and transport availability.
+
+            DELIVERY CONFIRMATION:
+            A message is marked delivered only when a real acknowledgment matching its message ID reaches this device.
+
+            ACTIVE AIRHOP RELAYS OBSERVED:
+            • Active nodes observed by this device: $activeCount
+        """.trimIndent()
 
         AlertDialog.Builder(this)
-            .setTitle("📡 AirHop Mesh: Zero Contacts Needed")
-            .setMessage(
-                "WHY ARE THERE NO PHONE CONTACTS?
-" +
-                "In severe disasters (floods, earthquakes, cyclones), cellular towers & internet grids completely fail. You cannot dial phone numbers or look up SIM contacts.
-
-" +
-                "HOW DOES SHARING WORK?
-" +
-                "Any nearby phone with AirHop installed automatically discovers other phones and acts as an autonomous relay node.
-
-" +
-                "HOW DOES THE PACKET HOP?
-" +
-                "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over supported offline transports and relay nodes; practical range depends on the phone hardware, environment, and transport availability.
-
-" +
-                "DELIVERY CONFIRMATION (✓✓):
-" +
-                "A receiving AirHop node can return an acknowledgment packet. The message is marked delivered only when a real acknowledgment matching the message ID reaches this device.
-
-" +
-                "ACTIVE AIRHOP RELAYS OBSERVED:
-" +
-                "• Active nodes observed by this device: $activeCount"
-            )
-            .setPositiveButton("📡 PING ALL RELAYS") { _, _ ->
-                pingMeshRelays()
-            }
+            .setTitle("AirHop Mesh: Offline Relay")
+            .setMessage(message)
+            .setPositiveButton("PING RELAYS") { _, _ -> pingMeshRelays() }
             .setNegativeButton("GOT IT", null)
             .show()
     }
