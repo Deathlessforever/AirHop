@@ -1,349 +1,220 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/hud_background"
-    android:padding="8dp">
+    android:padding="12dp">
 
-    <!-- ============================================================ -->
-    <!-- TOP HEADER: BRAND & PEER RADAR STATUS                        -->
-    <!-- ============================================================ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingBottom="4dp">
-
+        android:orientation="horizontal"
+        android:paddingBottom="8dp">
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:orientation="vertical">
-
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="AIRHOP // iTANTRA"
+                android:text="AirHop"
                 android:textColor="@color/accent_text_primary"
-                android:textSize="17sp"
-                android:textStyle="bold"
-                android:fontFamily="monospace" />
-
+                android:textSize="24sp"
+                android:textStyle="bold"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="OFFLINE NEURAL TRANSCEIVER // SIH26173"
+                android:text="Offline emergency communication"
                 android:textColor="@color/accent_cyan"
-                android:textSize="9sp"
-                android:fontFamily="monospace" />
+                android:textSize="11sp"/>
         </LinearLayout>
-
-        <!-- Prominent Multi-Language Selector (10 Indian Languages + English) -->
         <Button
             android:id="@+id/btnSelectLanguage"
             android:layout_width="wrap_content"
-            android:layout_height="34dp"
+            android:layout_height="40dp"
             android:background="@drawable/bg_badge"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="🌐 English ▼"
-            android:textColor="@color/accent_cyan"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
-
-        <!-- 72-Hour Disaster Battery Saver Mode Toggle -->
-        <Button
-            android:id="@+id/btnBatteryMode"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:layout_marginStart="4dp"
-            android:background="@drawable/bg_badge"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="⚡ 100% PWR"
-            android:textColor="#FFD600"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
+            android:text="English ▼"
+            android:textColor="@color/accent_cyan"/>
     </LinearLayout>
 
-    <!-- Mesh Peer & Zero-Contact Explanation Strip -->
-    <Button
-        android:id="@+id/btnNearbyPeers"
-        android:layout_width="match_parent"
-        android:layout_height="30dp"
-        android:layout_marginBottom="4dp"
-        android:background="@drawable/bg_card_hud"
-        android:text="🟢 2 Nearby Relays Active • Zero Contacts Needed [ℹ️ Tap Info]"
-        android:textColor="@color/accent_coded_phy"
-        android:textSize="9sp"
-        android:textStyle="bold"
-        android:fontFamily="monospace"
-        android:gravity="center"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp" />
-
-    <!-- LIFE-SAVING ACTION BAR: SOS SIREN & STROBE, SITUATIONAL TRIAGE, FIRST AID -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="4dp">
-
-        <Button
-            android:id="@+id/btnSos"
-            android:layout_width="0dp"
-            android:layout_height="38dp"
-            android:layout_weight="1.3"
-            android:background="@drawable/bg_sos_button"
-            android:text="🚨 SOS SIREN &amp; STROBE"
-            android:textColor="#FFFFFF"
-            android:textSize="9sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
-
-        <Button
-            android:id="@+id/btnTriageReport"
-            android:layout_width="0dp"
-            android:layout_height="38dp"
-            android:layout_weight="1.1"
-            android:layout_marginStart="4dp"
-            android:background="@drawable/bg_badge"
-            android:text="📋 TRIAGE REPORT"
-            android:textColor="@color/accent_cyan"
-            android:textSize="9sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
-
-        <Button
-            android:id="@+id/btnSurvivalGuide"
-            android:layout_width="0dp"
-            android:layout_height="38dp"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:background="@drawable/bg_card_hud"
-            android:text="🩺 1ST AID GUIDE"
-            android:textColor="#00E676"
-            android:textSize="9sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
-    </LinearLayout>
-
-    <!-- Telemetry Badges Strip -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:weightSum="3"
-        android:layout_marginBottom="4dp">
-
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
         <TextView
             android:id="@+id/tvBleStatus"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="34dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_card_hud"
-            android:padding="4dp"
             android:gravity="center"
-            android:text="BLE: CODED + 1M"
+            android:background="@drawable/bg_card_hud"
+            android:text="Bluetooth: checking"
             android:textColor="@color/accent_coded_phy"
-            android:textSize="8sp"
-            android:fontFamily="monospace" />
-
+            android:textSize="10sp"/>
         <TextView
             android:id="@+id/tvWifiAwareStatus"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="34dp"
             android:layout_weight="1"
-            android:layout_marginStart="3dp"
-            android:layout_marginEnd="3dp"
-            android:background="@drawable/bg_card_hud"
-            android:padding="4dp"
+            android:layout_marginStart="4dp"
             android:gravity="center"
-            android:text="UDP: MESH ACTIVE"
+            android:background="@drawable/bg_card_hud"
+            android:text="Wi-Fi Aware: checking"
             android:textColor="@color/accent_wifi_aware"
-            android:textSize="8sp"
-            android:fontFamily="monospace" />
-
+            android:textSize="10sp"/>
         <TextView
             android:id="@+id/tvGpsStatus"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="34dp"
             android:layout_weight="1"
-            android:background="@drawable/bg_card_hud"
-            android:padding="4dp"
+            android:layout_marginStart="4dp"
             android:gravity="center"
-            android:text="NAVIC: 12.2958°N"
+            android:background="@drawable/bg_card_hud"
+            android:text="Location: unavailable"
             android:textColor="@color/accent_warning"
-            android:textSize="8sp"
-            android:fontFamily="monospace" />
+            android:textSize="10sp"/>
     </LinearLayout>
 
-    <!-- ============================================================ -->
-    <!-- CHAT MESSAGES RECYCLER VIEW (WHATSAPP-STYLE WITH BLUE TICKS) -->
-    <!-- ============================================================ -->
+    <Button
+        android:id="@+id/btnNearbyPeers"
+        android:layout_width="match_parent"
+        android:layout_height="42dp"
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/bg_card_hud"
+        android:text="No nearby AirHop nodes observed"
+        android:textColor="@color/accent_coded_phy"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="8dp">
+        <Button
+            android:id="@+id/btnSos"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_sos_button"
+            android:text="SOS"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"/>
+        <Button
+            android:id="@+id/btnTriageReport"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_badge"
+            android:text="Report"
+            android:textColor="@color/accent_cyan"/>
+        <Button
+            android:id="@+id/btnSurvivalGuide"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_badge"
+            android:text="First aid"
+            android:textColor="#00E676"/>
+    </LinearLayout>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvChatMessages"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:background="@drawable/bg_card_hud"
-        android:backgroundTint="#0B0F17"
-        android:padding="4dp"
+        android:padding="6dp"
         android:clipToPadding="false"
-        android:scrollbars="vertical" />
+        android:scrollbars="vertical"/>
 
-    <!-- Waveform Visualizer (Compact) -->
     <com.team.vocalink.ui.TokenVisualizerView
         android:id="@+id/tokenVisualizerView"
         android:layout_width="match_parent"
-        android:layout_height="32dp"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="4dp"
-        android:background="@drawable/bg_card_hud" />
+        android:layout_height="28dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="@drawable/bg_card_hud"/>
 
-    <!-- ============================================================ -->
-    <!-- QUICK EMERGENCY SPEECH PRESETS CHIPS (1-TAP DISASTER SPEECH) -->
-    <!-- ============================================================ -->
     <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:scrollbars="none"
-        android:layout_marginBottom="4dp">
-
+        android:layout_marginBottom="6dp">
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/chipPresetFlood"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:background="@drawable/bg_badge"
-                android:text="🚨 Flood Rising (3 Trapped)"
-                android:textColor="@color/accent_sos"
-                android:textSize="9sp"
-                android:fontFamily="monospace"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
-
-            <Button
-                android:id="@+id/chipPresetMedical"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/bg_badge"
-                android:text="🩺 Medical Emergency"
-                android:textColor="@color/accent_warning"
-                android:textSize="9sp"
-                android:fontFamily="monospace"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
-
-            <Button
-                android:id="@+id/chipPresetRubble"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/bg_badge"
-                android:text="🏚️ Trapped in Rubble"
-                android:textColor="@color/accent_text_primary"
-                android:textSize="9sp"
-                android:fontFamily="monospace"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
-
-            <Button
-                android:id="@+id/chipPresetWater"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/bg_badge"
-                android:text="💧 Need Drinking Water"
-                android:textColor="@color/accent_cyan"
-                android:textSize="9sp"
-                android:fontFamily="monospace"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
-
-            <Button
-                android:id="@+id/chipPresetEvac"
-                android:layout_width="wrap_content"
-                android:layout_height="30dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/bg_badge"
-                android:text="📍 Safe Evacuation Point"
-                android:textColor="@color/accent_coded_phy"
-                android:textSize="9sp"
-                android:fontFamily="monospace"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp" />
+            <Button android:id="@+id/chipPresetFlood" android:layout_width="wrap_content" android:layout_height="34dp" android:background="@drawable/bg_badge" android:text="Flood" android:textColor="@color/accent_sos"/>
+            <Button android:id="@+id/chipPresetMedical" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Medical" android:textColor="@color/accent_warning"/>
+            <Button android:id="@+id/chipPresetRubble" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Trapped" android:textColor="@color/accent_text_primary"/>
+            <Button android:id="@+id/chipPresetWater" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Water" android:textColor="@color/accent_cyan"/>
+            <Button android:id="@+id/chipPresetEvac" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Evacuate" android:textColor="@color/accent_coded_phy"/>
         </LinearLayout>
     </HorizontalScrollView>
 
-    <!-- ============================================================ -->
-    <!-- BOTTOM INPUT DOCK: SPEECH-TO-TEXT MIC + EDIT TEXT + SEND     -->
-    <!-- ============================================================ -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="4dp">
-
+        android:orientation="horizontal">
         <Button
             android:id="@+id/btnMicVoice"
             android:layout_width="52dp"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:background="@drawable/bg_ptt_button"
-            android:text="🎙️"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp" />
-
+            android:text="🎙"
+            android:textSize="18sp"/>
         <EditText
             android:id="@+id/etMessageInput"
             android:layout_width="0dp"
-            android:layout_height="44dp"
+            android:layout_height="48dp"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bg_card_hud"
-            android:hint="Speak on mic or type message..."
+            android:hint="Type a message"
             android:textColorHint="#6E7681"
             android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:paddingStart="10dp"
-            android:paddingEnd="10dp"
-            android:maxLines="2" />
-
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:maxLines="2"/>
         <Button
             android:id="@+id/btnSendMessage"
-            android:layout_width="64dp"
-            android:layout_height="44dp"
+            android:layout_width="70dp"
+            android:layout_height="48dp"
             android:background="@drawable/bg_badge"
-            android:text="SEND"
-            android:textColor="@color/accent_cyan"
-            android:textSize="11sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
+            android:text="Send"
+            android:textColor="@color/accent_cyan"/>
     </LinearLayout>
 
-    <!-- ============================================================ -->
-    <!-- ACTION STRIP: EXPORT REAL DISASTER LOGS                         -->
-    <!-- ============================================================ -->
-    <Button
-        android:id="@+id/btnExportLogs"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="36dp"
-        android:background="@drawable/bg_badge"
-        android:text="EXPORT DISASTER LOG"
-        android:textColor="@color/accent_cyan"
-        android:textSize="9sp"
-        android:fontFamily="monospace" />
-
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:layout_marginTop="6dp">
+        <Button
+            android:id="@+id/btnBatteryMode"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_badge"
+            android:text="Battery"
+            android:textColor="#FFD600"/>
+        <Button
+            android:id="@+id/btnExportLogs"
+            android:layout_width="0dp"
+            android:layout_height="34dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_badge"
+            android:text="Export log"
+            android:textColor="@color/accent_cyan"/>
+    </LinearLayout>
 </LinearLayout>
