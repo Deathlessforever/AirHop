@@ -16,8 +16,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
  * Blind Relay Engine: Dedicated background engine that intercepts packets from BLE Coded PHY,
@@ -56,22 +54,12 @@ class BlindRelayManager(
             return
         }
 
-        // Fast-path extraction of 32-bit msg_id at offset 3 (little-endian)
-        val msgId = ByteBuffer.wrap(rawPacket, 3, 4).order(ByteOrder.LITTLE_ENDIAN).int
-
-        // Sub-millisecond duplicate detection
-        val isDuplicate = bloomFilter.checkAndAdd(msgId)
-        if (isDuplicate) {
-            // Drop immediately
-            return
-        }
-
         relayScope.launch {
-            processPacketPipeline(rawPacket, msgId, rssi)
+            processPacketPipeline(rawPacket, rssi)
         }
     }
 
-    private fun processPacketPipeline(rawPacket: ByteArray, preliminaryMsgId: Int, rssi: Int) {
+    private fun processPacketPipeline(rawPacket: ByteArray, rssi: Int) {
         // 1. Decode and automatic RS(40,32) error correction in Native C++
         val decodeResult: PacketRepairResult? = AirHopNative.decodeAndRepairPacket(rawPacket)
         if (decodeResult == null || !decodeResult.success) {
@@ -81,6 +69,10 @@ class BlindRelayManager(
 
         val repairedBytes = decodeResult.repairedPacket ?: rawPacket
         val msgId = decodeResult.msgId
+
+        // Duplicate suppression is performed after FEC repair so corrupted msg_id bytes
+        // cannot poison the deduplication table with a false identity.
+        if (bloomFilter.checkAndAdd(msgId)) return
         val flags = decodeResult.flags
         val ttl = decodeResult.ttl
         val latE7 = decodeResult.latE7
