@@ -151,9 +151,20 @@ class MainActivity : AppCompatActivity() {
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        startAndBindMeshService()
-        checkBatteryOptimization()
+    ) { result ->
+        val required = result.keys.filter { it != Manifest.permission.POST_NOTIFICATIONS }
+        val deniedRequired = required.filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (deniedRequired.isEmpty()) {
+            startAndBindMeshService()
+        } else {
+            Toast.makeText(
+                this,
+                "AirHop needs nearby-device and location permissions to run its offline mesh.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -417,8 +428,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val loc = service.geofenceManager.currentLocation.value
-        val lat = loc?.latitude ?: 0.0
-        val lon = loc?.longitude ?: 0.0
+        val lat = loc?.latitude
+        val lon = loc?.longitude
 
         val phraseId = phraseIdOverride ?: DisasterPhraseCodebook.getPhraseIdForText(text)
 
@@ -427,8 +438,8 @@ class MainActivity : AppCompatActivity() {
             phraseId = phraseId,
             isSos = isSos,
             lang = selectedLanguage.langByte,
-            lat = lat,
-            lon = lon
+            lat = lat ?: Double.NaN,
+            lon = lon ?: Double.NaN
         )
 
         tokenVisualizerView.updateAudioRms(0.75f, com.team.vocalink.core.VadState.ACTIVE)
