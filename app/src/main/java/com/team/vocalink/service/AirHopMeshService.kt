@@ -245,7 +245,7 @@ class AirHopMeshService : Service() {
     }
 
     override fun onDestroy() {
-        serviceScope.coroutineContext.cancel()
+        serviceJob.cancel()
         stopMeshEngines()
         try {
             if (wakeLock?.isHeld == true) {
