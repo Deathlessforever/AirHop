@@ -45,6 +45,11 @@ class BleMeshEngine(
     private var advertiser: BluetoothLeAdvertiser? = null
     private var scanner: BluetoothLeScanner? = null
     private var currentAdvSet: AdvertisingSet? = null
+    private var presenceAdvSet: AdvertisingSet? = null
+    private val presenceUuid = android.os.ParcelUuid(java.util.UUID.fromString("0000FD70-0000-1000-8000-00805F9B34FB"))
+    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
+    private var presenceLocationProvider: (() -> Triple<Double, Double, Boolean>?)? = null
+    private var presenceCallback: ((Int, Double, Double, Int) -> Unit)? = null
     private var isScanning = false
 
     private val authenticator = AirHopPacketAuthenticator(context)
@@ -70,12 +75,16 @@ class BleMeshEngine(
     }
 
     @SuppressLint("MissingPermission")
+    fun setPresenceLocationProvider(provider: (() -> Triple<Double, Double, Boolean>?)?) { presenceLocationProvider = provider }
+    fun setPresenceObserver(observer: ((Int, Double, Double, Int) -> Unit)?) { presenceCallback = observer }
+
     fun start() {
         val adapter = bluetoothAdapter ?: return
         if (!adapter.isEnabled) return
         advertiser = adapter.bluetoothLeAdvertiser
         scanner = adapter.bluetoothLeScanner
         startScanning()
+        startPresenceAdvertising()
         udpMeshSocket.start()
     }
 
@@ -83,6 +92,7 @@ class BleMeshEngine(
     fun stop() {
         stopScanning()
         stopAdvertising()
+        stopPresenceAdvertising()
         udpMeshSocket.stop()
         queue.clear()
         scanExecutor.shutdownNow()
@@ -105,14 +115,13 @@ class BleMeshEngine(
     private fun startScanning() {
         val s = scanner ?: return
         if (isScanning) return
-        val filter = ScanFilter.Builder()
-            .setServiceData(ProtocolConstants.PARCEL_SERVICE_UUID, null)
-            .build()
+        val filter = ScanFilter.Builder().setServiceData(ProtocolConstants.PARCEL_SERVICE_UUID, null).build()
+        val presenceFilter = ScanFilter.Builder().setServiceData(presenceUuid, null).build()
         val settings = ScanSettings.Builder()
             .setScanMode(if (_isPowerSaveMode.value) ScanSettings.SCAN_MODE_LOW_POWER else ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         try {
-            s.startScan(listOf(filter), settings, scanCallback)
+            s.startScan(listOf(filter, presenceFilter), settings, scanCallback)
             isScanning = true
         } catch (e: Exception) {
             Log.e(TAG, "BLE scan start failed", e)
@@ -189,6 +198,8 @@ class BleMeshEngine(
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             val record = result?.scanRecord ?: return
+            val presence = record.getServiceData(presenceUuid)
+            if (presence != null) { handlePresence(presence, result.rssi); return }
             val serviceData = record.getServiceData(ProtocolConstants.PARCEL_SERVICE_UUID) ?: return
             val packet = authenticator.unwrap(serviceData) ?: return
             if (packet.size != ProtocolConstants.PACKET_SIZE || packet[0] != ProtocolConstants.AIRHOP_PREAMBLE) return
