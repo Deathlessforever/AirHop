@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as AirHopMeshService.LocalBinder
+            val binder = service as? AirHopMeshService.LocalBinder ?: run { Toast.makeText(this@MainActivity, "Invalid mesh service connection", Toast.LENGTH_LONG).show(); return }
             meshService = binder.getService()
             isBound = true
             observeServiceData()
