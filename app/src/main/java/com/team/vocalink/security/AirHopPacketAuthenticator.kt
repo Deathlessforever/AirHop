@@ -21,7 +21,7 @@ import android.security.keystore.KeyProperties
  * under an Android Keystore AES key. This class authenticates transport frames;
  * it does not provide confidentiality.
  */
-class AirHopPacketAuthenticator(context: Context) {
+class AirHopPacketAuthenticator(context: Context, private val testKey: ByteArray? = null) {
     companion object {
         const val TAG_BYTES = 8
         const val SECURE_FRAME_SIZE = 48
@@ -67,6 +67,7 @@ class AirHopPacketAuthenticator(context: Context) {
     }
 
     private fun key(): ByteArray {
+        testKey?.let { require(it.size == 32) { "Test AirHop key must be 256 bits" }; return it.copyOf() }
         val sealed = prefs.getString(SEALED_KEY, null)
         if (sealed != null) {
             return unseal(Base64.decode(sealed, Base64.NO_WRAP))
