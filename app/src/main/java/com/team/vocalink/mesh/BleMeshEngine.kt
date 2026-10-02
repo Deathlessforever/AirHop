@@ -168,6 +168,14 @@ class BleMeshEngine(
 
         val adv = advertiser ?: bluetoothAdapter?.bluetoothLeAdvertiser ?: return
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && bluetoothAdapter?.isLeExtendedAdvertisingSupported == true) {
+            val maxLength = bluetoothAdapter?.getLeMaximumAdvertisingDataLength() ?: 0
+            if (maxLength < ProtocolConstants.PACKET_SIZE + 3) {
+                Log.w(TAG, "AirHop frame not sent: controller advertising capacity=$maxLength")
+                return
+            }
+        }
+
         val pdata = AdvertiseData.Builder()
             .addServiceData(ProtocolConstants.PARCEL_SERVICE_UUID, packet40Bytes)
             .setIncludeDeviceName(false)
