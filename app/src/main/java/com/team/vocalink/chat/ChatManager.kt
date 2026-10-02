@@ -45,8 +45,8 @@ class ChatManager(
         phraseId: Int = 1,
         isSos: Boolean = false,
         lang: Byte = ProtocolConstants.LANG_ENGLISH,
-        lat: Double = ProtocolConstants.BENCHMARK_MYSURU_LAT,
-        lon: Double = ProtocolConstants.BENCHMARK_MYSURU_LON
+        lat: Double = 0.0,
+        lon: Double = 0.0
     ) {
         val tokens = DisasterPhraseCodebook.encodeTextToTokens(text, phraseId)
         var flags = lang.toInt()
