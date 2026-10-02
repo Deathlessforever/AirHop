@@ -57,7 +57,7 @@ class BleMeshEngine(
     private val queue = ConcurrentLinkedQueue<ByteArray>()
     private val pumpRunning = AtomicBoolean(false)
     private val handler = Handler(Looper.getMainLooper())
-    private val scanExecutor = Executors.newSingleThreadExecutor()
+    private var scanExecutor = Executors.newSingleThreadExecutor()
     private val peers = ConcurrentHashMap<String, Long>()
 
     private val _isCodedPhySupported = MutableStateFlow(false)
@@ -83,6 +83,9 @@ class BleMeshEngine(
         if (!adapter.isEnabled) return
         advertiser = adapter.bluetoothLeAdvertiser
         scanner = adapter.bluetoothLeScanner
+        if (scanExecutor.isShutdown || scanExecutor.isTerminated) {
+            scanExecutor = Executors.newSingleThreadExecutor()
+        }
         startScanning()
         startPresenceAdvertising()
         handler.postDelayed(presenceRefresh, 10_000L)
