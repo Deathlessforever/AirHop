@@ -43,7 +43,7 @@ Java_com_team_vocalink_core_AirHopNative_encodePacket(
         jint lat_e7,
         jint lon_e7,
         jbyteArray tokens_array,
-        jlong timestamp_ms,\n        jint forced_msg_id) {
+        jlong timestamp_ms) {
 
     ensure_initialized();
 
