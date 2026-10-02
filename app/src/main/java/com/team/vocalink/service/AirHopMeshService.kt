@@ -98,6 +98,7 @@ class AirHopMeshService : Service() {
         // foreground-service startup window.
         startForegroundServiceNotification()
 
+        try {
         // Initialize Core Engines
         geofenceManager = GeofenceManager(this)
         nodePresenceDirectory = com.team.vocalink.mesh.NodePresenceDirectory(this)
@@ -167,6 +168,11 @@ class AirHopMeshService : Service() {
 
         startMeshEngines()
         Log.i(TAG, "AirHopMeshService initialized with offline DisasterLogStore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Mesh initialization failed", e)
+            instance = null
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
