@@ -20,6 +20,7 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.security.AirHopPacketAuthenticator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,7 +57,7 @@ class BleMeshEngine(
     val isPowerSaveMode: StateFlow<Boolean> = _isPowerSaveMode.asStateFlow()
 
     // Dual-bearer offline UDP socket for local mesh acceleration
-    private val udpMeshSocket = UdpMeshSocket(packetReceiver)
+    private val udpMeshSocket = UdpMeshSocket(packetReceiver)\n    private val authenticator = AirHopPacketAuthenticator(context)
 
     // Sliding window of peer device timestamps for real-time active peer counting
     private val recentPeers = ConcurrentLinkedQueue<Pair<String, Long>>()
