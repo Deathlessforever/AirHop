@@ -91,6 +91,11 @@ class AirHopMeshService : Service() {
 
         createNotificationChannel()
 
+        // Enter the foreground before initializing the radio stack.
+        // This avoids long engine initialization consuming the Android
+        // foreground-service startup window.
+        startForegroundServiceNotification()
+
         // Initialize Core Engines
         geofenceManager = GeofenceManager(this)
         dndAlertManager = DndBypassAlertManager(this)
@@ -154,7 +159,6 @@ class AirHopMeshService : Service() {
             return START_NOT_STICKY
         }
 
-        startForegroundServiceNotification()
         return START_STICKY
     }
 
