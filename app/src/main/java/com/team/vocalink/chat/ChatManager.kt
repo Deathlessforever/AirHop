@@ -108,7 +108,7 @@ class ChatManager(
 
         if (isAck) {
             // This is an ACK delivery confirmation from User 2!
-            val acknowledgedMsgId = repairResult.msgId
+            val acknowledgedMsgId = repairResult.targetZone
             scope.launch {
                 val current = _messages.value.toMutableList()
                 val index = current.indexOfFirst { it.id == acknowledgedMsgId && it.isFromMe }
@@ -229,7 +229,7 @@ class ChatManager(
         val ackBytes = AirHopNative.encodePacket(
             flags = ackFlags,
             ttl = 5.toByte(),
-            targetZone = 0, // ACK is broadcast; only the original sender has this message ID
+            targetZone = targetMsgId, // ACK carries the acknowledged message ID
             latE7 = 0,
             lonE7 = 0,
             tokens = emptyTokens,
