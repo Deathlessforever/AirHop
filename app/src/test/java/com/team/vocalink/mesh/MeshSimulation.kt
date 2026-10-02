@@ -19,6 +19,7 @@ class MeshSimulation(
         val payload: ByteArray,
         val ttl: Int,
         val hops: Int = 0,
+        val currentNode: Int = source,
         val ack: Boolean = false,
         val acknowledgedMessageId: Int = 0
     )
@@ -50,7 +51,7 @@ class MeshSimulation(
         var duplicates = 0
         var ttlDrops = 0
         val visited = mutableSetOf<Pair<Int, Int>>()
-        queue.add(Frame(messageId, source, destination, payload.copyOf(), maxHops))
+        queue.add(Frame(messageId, source, destination, payload.copyOf(), maxHops, currentNode = source))
 
         while (queue.isNotEmpty()) {
             val frame = queue.removeFirst()
@@ -59,7 +60,7 @@ class MeshSimulation(
                 continue
             }
             val key = frame.source to frame.messageId
-            val node = if (frame.hops == 0) source else trace.lastOrNull() ?: source
+            val node = frame.currentNode
             if (!nodes.contains(node)) continue
             if (!visited.add(node to frame.messageId)) {
                 duplicates++
@@ -73,7 +74,7 @@ class MeshSimulation(
 
             for (next in neighbors[node].orEmpty()) {
                 if (!nodes.contains(next)) continue
-                queue.add(frame.copy(ttl = frame.ttl - 1, hops = frame.hops + 1))
+                queue.add(frame.copy(ttl = frame.ttl - 1, hops = frame.hops + 1, currentNode = next))
             }
         }
 
