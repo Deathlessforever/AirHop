@@ -361,9 +361,9 @@ class MainActivity : AppCompatActivity() {
                 "HOW DOES SHARING WORK?\n" +
                 "Any nearby phone with AirHop installed automatically discovers other phones and acts as an autonomous relay node.\n\n" +
                 "HOW DOES THE PACKET HOP?\n" +
-                "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over Bluetooth LE Coded PHY (up to 1km) and local offline mesh until it reaches rescue personnel.\n\n" +
-                "GUARANTEED BLUE TICK (✓✓):\n" +
-                "When Phone 2 receives your alert and reads it aloud, it automatically returns an encrypted ACK packet. Your single checkmark (✓) instantly turns into a WhatsApp-style Double Blue Tick (✓✓)!\n\n" +
+                "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over supported offline transports and relay nodes; practical range depends on the phone hardware, environment, and transport availability.\n\n" +
+                "DELIVERY CONFIRMATION (✓✓):\n" +
+                "A receiving AirHop node can return an acknowledgment packet. The message is marked delivered only when a real acknowledgment matching the message ID reaches this device.\n\n" +
                 "ACTIVE AIRHOP RELAYS OBSERVED:\n" +
                 "• Active nodes observed by this device: $activeCount"
             )
