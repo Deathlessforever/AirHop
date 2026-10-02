@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
-import java.io.ServerSocket
+import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -292,7 +292,7 @@ class WifiAwareMeshEngine(
             .build()
 
         requestAwareNetwork(specifier) { network ->
-            val awareInfo = network.transportInfo as? WifiAwareNetworkInfo ?: return@requestAwareNetwork
+            val awareInfo = network.getNetworkCapabilities()?.transportInfo as? WifiAwareNetworkInfo ?: return@requestAwareNetwork
             val address = awareInfo.peerIpv6Addr ?: return@requestAwareNetwork
 
             ioExecutor.execute {
@@ -407,11 +407,10 @@ class WifiAwareMeshEngine(
         }
 
         if (!sent) {
-            val publisher = publishSession
-            val subscriber = subscribeSession
             for (peer in peers.keys) {
                 try {
-                    (publisher ?: subscriber)?.sendMessage(peer, 3, frame)
+                    publishSession?.sendMessage(peer, 3, frame)
+                    subscribeSession?.sendMessage(peer, 3, frame)
                 } catch (e: Exception) {
                     Log.w(TAG, "Wi-Fi Aware discovery fallback failed", e)
                 }
