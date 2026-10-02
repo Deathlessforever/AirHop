@@ -77,7 +77,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnMicVoice: Button
     private lateinit var etMessageInput: EditText
     private lateinit var btnSendMessage: Button
-    private lateinit var btnDemoScenarios: Button
     private lateinit var btnExportLogs: Button
 
     // Quick Disaster Chips
@@ -152,7 +151,6 @@ class MainActivity : AppCompatActivity() {
         btnMicVoice = findViewById(R.id.btnMicVoice)
         etMessageInput = findViewById(R.id.etMessageInput)
         btnSendMessage = findViewById(R.id.btnSendMessage)
-        btnDemoScenarios = findViewById(R.id.btnDemoScenarios)
         btnExportLogs = findViewById(R.id.btnExportLogs)
 
         chipPresetFlood = findViewById(R.id.chipPresetFlood)
@@ -250,11 +248,6 @@ class MainActivity : AppCompatActivity() {
         chipPresetWater.setOnClickListener {
             val msg = DisasterPhraseCodebook.getPhrase(5, selectedLanguage.langByte)
             sendEmergencyMessage(msg, phraseIdOverride = 5)
-        }
-
-        // Demo Peer ➔ Blue Tick Simulator (Loopback evaluation for 1 phone)
-        btnDemoScenarios.setOnClickListener {
-            Toast.makeText(this, "Use two physical AirHop devices to verify delivery.", Toast.LENGTH_LONG).show()
         }
 
         // Export Logs as CSV
