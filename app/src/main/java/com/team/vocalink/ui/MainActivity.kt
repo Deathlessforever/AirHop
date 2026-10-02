@@ -92,13 +92,17 @@ class MainActivity : AppCompatActivity() {
     private var isSosSirenActive = false
     private var meshService: AirHopMeshService? = null
     private var isBound = false
+    private var serviceObserversStarted = false
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as? AirHopMeshService.LocalBinder ?: run { Toast.makeText(this@MainActivity, "Invalid mesh service connection", Toast.LENGTH_LONG).show(); return }
             meshService = binder.getService()
             isBound = true
-            observeServiceData()
+            if (!serviceObserversStarted) {
+                serviceObserversStarted = true
+                observeServiceData()
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -192,7 +196,7 @@ class MainActivity : AppCompatActivity() {
         btnSelectLanguage.setOnClickListener { safeAction { showLanguageSelectionDialog() } }
         btnBatteryMode.setOnClickListener { safeAction { toggleBatteryMode() } }
         btnNearbyPeers.setOnClickListener { safeAction { startActivity(Intent(this, AirHopMapActivity::class.java)) } }
-        btnSos.setOnClickListener { safeAction { toggleSosSirenAndStrobe() } }
+        btnSos.setOnClickListener { safeAction { ensureCameraPermissionThenSos() } }
 
         btnTriageReport.setOnClickListener {
             safeAction {
@@ -220,7 +224,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnMicVoice.setOnClickListener { safeAction { launchVoiceRecognizer() } }
+        btnMicVoice.setOnClickListener { safeAction { ensureMicrophonePermissionThenVoice() } }
 
         chipPresetFlood.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte), phraseIdOverride = 1) } }
         chipPresetEvac.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(2, selectedLanguage.langByte), phraseIdOverride = 2) } }
