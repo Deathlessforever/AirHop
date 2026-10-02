@@ -6,7 +6,7 @@ import java.util.UUID
 object ProtocolConstants {
     const val AIRHOP_PREAMBLE: Byte = 0x7E
     const val DEFAULT_TTL: Byte = 10
-    const val PACKET_SIZE: Int = 40
+    const val PACKET_SIZE: Int = 40\n    const val NODE_ID_SIZE: Int = 4\n    const val MESSAGE_ID_SIZE: Int = 4\n    const val MAX_REASSEMBLY_CHUNKS: Int = 64\n    const val REPLAY_WINDOW_MS: Long = 120_000L
     const val DATA_SIZE: Int = 32
     const val PARITY_SIZE: Int = 8
     const val TOKEN_COUNT: Int = 13
