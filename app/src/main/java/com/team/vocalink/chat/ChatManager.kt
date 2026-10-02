@@ -35,6 +35,7 @@ class ChatManager(
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val prefs = context.getSharedPreferences("airhop_messages", Context.MODE_PRIVATE)
+    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
     private val storageKey = "messages_v1"
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(loadMessages())
@@ -50,7 +51,8 @@ class ChatManager(
         isSos: Boolean = false,
         lang: Byte = ProtocolConstants.LANG_ENGLISH,
         lat: Double = 0.0,
-        lon: Double = 0.0
+        lon: Double = 0.0,
+        destinationId: Int = 0
     ) {
         val tokens = DisasterPhraseCodebook.encodeTextToTokens(text, phraseId)
         var flags = lang.toInt()
@@ -63,7 +65,7 @@ class ChatManager(
         val packetBytes = AirHopNative.encodePacket(
             flags = flags.toByte(),
             ttl = ProtocolConstants.DEFAULT_TTL,
-            targetZone = 0x01,
+            targetZone = destinationId,
             latE7 = latE7,
             lonE7 = lonE7,
             tokens = tokens,
@@ -85,7 +87,7 @@ class ChatManager(
             lat = lat,
             lon = lon,
             hopCount = 1,
-            status = MessageStatus.SENT
+            status = MessageStatus.SENDING
         )
 
         _messages.value = _messages.value + chatMsg
@@ -93,13 +95,15 @@ class ChatManager(
 
         // Broadcast over BLE + UDP mesh
         bleMeshEngine.broadcastPacket(packetBytes)
-        Log.i(TAG, "Sent message $msgId over offline mesh: '$text'")
+        currentMessageState(msgId, MessageStatus.SENT)
+        Log.i(TAG, "Queued message $msgId over offline mesh: '$text'")
     }
 
     fun handleIncomingPacket(repairResult: PacketRepairResult) {
         val flags = repairResult.flags
         val msgId = repairResult.msgId
         val targetZone = repairResult.targetZone
+        val destinationId = targetZone
         val isAck = (flags and ProtocolConstants.FLAG_ACK.toInt()) != 0
 
         if (isAck) {
@@ -124,7 +128,10 @@ class ChatManager(
             return
         }
 
-        // Normal message received from peer (User 1 or User 2)
+        // Directed frames are consumed only by their destination; zero is broadcast.
+        if (destinationId != 0 && destinationId != nodeIdentity.intId()) return
+
+        // Normal message received from peer
         scope.launch {
             val existing = _messages.value.find { it.id == msgId }
             if (existing != null) return@launch // Already have it
@@ -154,6 +161,16 @@ class ChatManager(
 
             // Send Delivery ACK packet back over mesh so User 1 gets the Blue Tick!
             sendAckPacket(msgId, lang)
+        }
+    }
+
+    private fun currentMessageState(id: Int, status: MessageStatus) {
+        val current = _messages.value.toMutableList()
+        val index = current.indexOfFirst { it.id == id }
+        if (index >= 0) {
+            current[index] = current[index].copy(status = status)
+            _messages.value = current
+            persistMessages()
         }
     }
 
