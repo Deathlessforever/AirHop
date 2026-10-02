@@ -86,6 +86,7 @@ class ChatManager(
             .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
 
         onMessageSent?.invoke(msgId)
+        persistOutbox(msgId, packetBytes)
 
         val chatMsg = ChatMessage(
             id = msgId,
@@ -131,6 +132,7 @@ class ChatManager(
                     _messages.value = current
                     persistMessages()
                     _deliveryEvent.emit(acknowledgedMsgId)
+                    removeOutbox(acknowledgedMsgId)
                     Log.i(TAG, "BLUE TICK CONFIRMED for message $acknowledgedMsgId! Latency: $latency ms")
                 }
             }
