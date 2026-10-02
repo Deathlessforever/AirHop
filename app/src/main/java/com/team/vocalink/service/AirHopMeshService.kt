@@ -71,6 +71,8 @@ class AirHopMeshService : Service() {
         private set
     lateinit var chatManager: com.team.vocalink.chat.ChatManager
         private set
+    lateinit var nodePresenceDirectory: com.team.vocalink.mesh.NodePresenceDirectory
+        private set
 
     private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
@@ -98,6 +100,7 @@ class AirHopMeshService : Service() {
 
         // Initialize Core Engines
         geofenceManager = GeofenceManager(this)
+        nodePresenceDirectory = com.team.vocalink.mesh.NodePresenceDirectory(this)
         dndAlertManager = DndBypassAlertManager(this)
         neuralTtsHook = NeuralTtsHook(this)
         offlineTtsEngine = com.team.vocalink.alert.OfflineTtsEngine(this)
@@ -110,7 +113,14 @@ class AirHopMeshService : Service() {
             blindRelayManager.onRawPacketScanned(rawPacket, -50)
         }
 
-        bleMeshEngine.setSecondaryBroadcaster { packet -> wifiAwareEngine.sendBurstPacket(packet) }\n\n        blindRelayManager = BlindRelayManager(
+        bleMeshEngine.setSecondaryBroadcaster { packet -> wifiAwareEngine.sendBurstPacket(packet) }
+        bleMeshEngine.setPresenceLocationProvider {
+            val loc = geofenceManager.currentLocation.value
+            if (loc == null || !nodePresenceDirectory.visible) null else Triple(loc.latitude, loc.longitude, true)
+        }
+        bleMeshEngine.setPresenceObserver { id, lat, lon, rssi -> nodePresenceDirectory.observe(id, lat, lon, rssi, true) }
+
+        blindRelayManager = BlindRelayManager(
             bleMeshEngine = bleMeshEngine,
             geofenceManager = geofenceManager,
             dndBypassAlertManager = dndAlertManager,
