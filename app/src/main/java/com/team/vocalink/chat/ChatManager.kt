@@ -2,6 +2,8 @@ package com.team.vocalink.chat
 
 import android.content.Context
 import android.util.Log
+import org.json.JSONArray
+import org.json.JSONObject
 import com.team.vocalink.alert.OfflineTtsEngine
 import com.team.vocalink.core.AirHopNative
 import com.team.vocalink.core.ChatMessage
@@ -32,8 +34,10 @@ class ChatManager(
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val prefs = context.getSharedPreferences("airhop_messages", Context.MODE_PRIVATE)
+    private val storageKey = "messages_v1"
 
-    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    private val _messages = MutableStateFlow<List<ChatMessage>>(loadMessages())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
     // Event for when a blue tick delivery occurs
@@ -85,6 +89,7 @@ class ChatManager(
         )
 
         _messages.value = _messages.value + chatMsg
+        persistMessages()
 
         // Broadcast over BLE + UDP mesh
         bleMeshEngine.broadcastPacket(packetBytes)
@@ -111,6 +116,7 @@ class ChatManager(
                         latencyMs = latency
                     )
                     _messages.value = current
+                    persistMessages()
                     _deliveryEvent.emit(acknowledgedMsgId)
                     Log.i(TAG, "BLUE TICK CONFIRMED for message ! Latency: ms")
                 }
@@ -140,6 +146,7 @@ class ChatManager(
             )
 
             _messages.value = _messages.value + incoming
+            persistMessages()
             Log.i(TAG, "Received message from peer: ''")
 
             // Speak aloud automatically on User 2's phone!
@@ -147,6 +154,55 @@ class ChatManager(
 
             // Send Delivery ACK packet back over mesh so User 1 gets the Blue Tick!
             sendAckPacket(msgId, lang)
+        }
+    }
+
+    private fun persistMessages() {
+        val array = JSONArray()
+        _messages.value.takeLast(200).forEach { message ->
+            array.put(JSONObject().apply {
+                put("id", message.id)
+                put("text", message.text)
+                put("sender", message.senderName)
+                put("fromMe", message.isFromMe)
+                put("timestamp", message.timestamp)
+                put("lat", message.lat)
+                put("lon", message.lon)
+                put("hops", message.hopCount)
+                put("status", message.status.name)
+                if (message.latencyMs == null) put("latencyMs", JSONObject.NULL)
+                else put("latencyMs", message.latencyMs)
+            })
+        }
+        prefs.edit().putString(storageKey, array.toString()).apply()
+    }
+
+    private fun loadMessages(): List<ChatMessage> {
+        val raw = prefs.getString(storageKey, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            buildList(array.length()) {
+                for (i in 0 until array.length()) {
+                    val o = array.getJSONObject(i)
+                    add(ChatMessage(
+                        id = o.getInt("id"),
+                        text = o.getString("text"),
+                        senderName = o.getString("sender"),
+                        isFromMe = o.getBoolean("fromMe"),
+                        timestamp = o.getLong("timestamp"),
+                        lat = o.optDouble("lat", 0.0),
+                        lon = o.optDouble("lon", 0.0),
+                        hopCount = o.optInt("hops", 1),
+                        status = runCatching {
+                            MessageStatus.valueOf(o.optString("status", MessageStatus.SENT.name))
+                        }.getOrDefault(MessageStatus.SENT),
+                        latencyMs = if (o.isNull("latencyMs")) null else o.optLong("latencyMs")
+                    ))
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Stored AirHop message history could not be restored", e)
+            emptyList()
         }
     }
 
