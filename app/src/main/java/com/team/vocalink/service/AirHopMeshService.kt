@@ -74,7 +74,8 @@ class AirHopMeshService : Service() {
     lateinit var nodePresenceDirectory: com.team.vocalink.mesh.NodePresenceDirectory
         private set
 
-    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+    private val serviceJob = kotlinx.coroutines.SupervisorJob()
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + serviceJob)
 
     inner class LocalBinder : Binder() {
         fun getService(): AirHopMeshService = this@AirHopMeshService
@@ -244,7 +245,7 @@ class AirHopMeshService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        serviceScope.coroutineContext.cancel()
         stopMeshEngines()
         try {
             if (wakeLock?.isHeld == true) {
@@ -252,6 +253,7 @@ class AirHopMeshService : Service() {
             }
         } catch (_: Exception) {}
         instance = null
+        super.onDestroy()
         Log.i(TAG, "AirHopMeshService destroyed")
     }
 }
