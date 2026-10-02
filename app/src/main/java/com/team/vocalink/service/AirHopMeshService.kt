@@ -105,20 +105,16 @@ class AirHopMeshService : Service() {
         neuralTtsHook = NeuralTtsHook(this)
         offlineTtsEngine = com.team.vocalink.alert.OfflineTtsEngine(this)
 
+        // Construct the relay dispatcher before radio callbacks can fire.
+        // A radio callback may arrive immediately after start(), so capturing
+        // an uninitialized lateinit property here is unsafe.
+        lateinit var relay: BlindRelayManager
         bleMeshEngine = BleMeshEngine(this) { rawPacket, rssi ->
-            blindRelayManager.onRawPacketScanned(rawPacket, rssi)
+            if (::blindRelayManager.isInitialized) blindRelayManager.onRawPacketScanned(rawPacket, rssi)
         }
-
         wifiAwareEngine = WifiAwareMeshEngine(this) { rawPacket ->
-            blindRelayManager.onRawPacketScanned(rawPacket, -50)
+            if (::blindRelayManager.isInitialized) blindRelayManager.onRawPacketScanned(rawPacket, -50)
         }
-
-        bleMeshEngine.setSecondaryBroadcaster { packet -> wifiAwareEngine.sendBurstPacket(packet) }
-        bleMeshEngine.setPresenceLocationProvider {
-            val loc = geofenceManager.currentLocation.value
-            if (loc == null || !nodePresenceDirectory.visible) null else Triple(loc.latitude, loc.longitude, true)
-        }
-        bleMeshEngine.setPresenceObserver { id, lat, lon, rssi -> nodePresenceDirectory.observe(id, lat, lon, rssi, true) }
 
         blindRelayManager = BlindRelayManager(
             bleMeshEngine = bleMeshEngine,
@@ -127,6 +123,17 @@ class AirHopMeshService : Service() {
             neuralTtsHook = neuralTtsHook,
             context = this
         )
+
+        bleMeshEngine.setSecondaryBroadcaster { packet ->
+            if (::wifiAwareEngine.isInitialized) wifiAwareEngine.sendBurstPacket(packet)
+        }
+        bleMeshEngine.setPresenceLocationProvider {
+            val loc = geofenceManager.currentLocation.value
+            if (loc == null || !nodePresenceDirectory.visible) null else Triple(loc.latitude, loc.longitude, true)
+        }
+        bleMeshEngine.setPresenceObserver { id, lat, lon, rssi ->
+            nodePresenceDirectory.observe(id, lat, lon, rssi, true)
+        }
 
         chatManager = com.team.vocalink.chat.ChatManager(this, bleMeshEngine, offlineTtsEngine) { msgId ->
             blindRelayManager.registerSentMessageId(msgId)
@@ -173,17 +180,17 @@ class AirHopMeshService : Service() {
     }
 
     private fun startMeshEngines() {
-        geofenceManager.start()
-        bleMeshEngine.start()
-        wifiAwareEngine.start()
+        try { geofenceManager.start() } catch (e: Exception) { Log.e(TAG, "Location engine start failed", e) }
+        try { bleMeshEngine.start() } catch (e: Exception) { Log.e(TAG, "BLE engine start failed", e) }
+        try { wifiAwareEngine.start() } catch (e: Exception) { Log.e(TAG, "Wi-Fi Aware engine start failed", e) }
     }
 
     private fun stopMeshEngines() {
-        audioIngestEngine.stopIngest()
-        bleMeshEngine.stop()
-        wifiAwareEngine.stop()
-        geofenceManager.stop()
-        dndAlertManager.stopAlarm()
+        try { if (::audioIngestEngine.isInitialized) audioIngestEngine.stopIngest() } catch (e: Exception) { Log.w(TAG, "Audio stop failed", e) }
+        try { if (::bleMeshEngine.isInitialized) bleMeshEngine.stop() } catch (e: Exception) { Log.w(TAG, "BLE stop failed", e) }
+        try { if (::wifiAwareEngine.isInitialized) wifiAwareEngine.stop() } catch (e: Exception) { Log.w(TAG, "Wi-Fi Aware stop failed", e) }
+        try { if (::geofenceManager.isInitialized) geofenceManager.stop() } catch (e: Exception) { Log.w(TAG, "Location stop failed", e) }
+        try { if (::dndAlertManager.isInitialized) dndAlertManager.stopAlarm() } catch (e: Exception) { Log.w(TAG, "Alert stop failed", e) }
     }
 
     private fun createNotificationChannel() {
