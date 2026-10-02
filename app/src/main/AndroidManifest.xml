@@ -67,6 +67,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.AirHopMapActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
         <service
             android:name=".service.AirHopMeshService"
             android:exported="false"
