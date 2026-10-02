@@ -85,6 +85,7 @@ class BleMeshEngine(
         scanner = adapter.bluetoothLeScanner
         startScanning()
         startPresenceAdvertising()
+        handler.postDelayed(presenceRefresh, 10_000L)
         udpMeshSocket.start()
     }
 
