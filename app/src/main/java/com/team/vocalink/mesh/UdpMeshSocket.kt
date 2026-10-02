@@ -1,7 +1,8 @@
-﻿package com.team.vocalink.mesh
+package com.team.vocalink.mesh
 
+import android.content.Context
 import android.util.Log
-import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.security.AirHopPacketAuthenticator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,12 +13,8 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 
-/**
- * Optional local-network UDP bearer. It only works when devices share an IP network; it is not a radio mesh.
- * Operates on port 40404 with broadcast enabled, allowing instantaneous sub-5ms
- * packet transmission whenever devices are in proximity or on local offline mesh/hotspot.
- */
 class UdpMeshSocket(
+    private val context: Context,
     private val packetReceiver: (ByteArray, Int) -> Unit
 ) {
     companion object {
@@ -26,8 +23,9 @@ class UdpMeshSocket(
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val authenticator = AirHopPacketAuthenticator(context)
     private var socket: DatagramSocket? = null
-    private var isRunning = false\n    private val authenticator = com.team.vocalink.security.AirHopPacketAuthenticator(context)
+    private var isRunning = false
 
     fun start() {
         if (isRunning) return
@@ -40,42 +38,38 @@ class UdpMeshSocket(
                     bind(InetSocketAddress(MESH_PORT))
                 }
                 socket = sock
-                Log.i(TAG, "UDP bearer bound to port $MESH_PORT on the local IP network")
-
-                val buffer = ByteArray(256)
+                val buffer = ByteArray(AirHopPacketAuthenticator.SECURE_FRAME_SIZE)
                 while (isActive && isRunning) {
                     val packet = DatagramPacket(buffer, buffer.size)
                     sock.receive(packet)
-                    if (packet.length == ProtocolConstants.PACKET_SIZE && buffer[0] == ProtocolConstants.AIRHOP_PREAMBLE) {
-                        val data = buffer.copyOf(ProtocolConstants.PACKET_SIZE)
+                    if (packet.length == AirHopPacketAuthenticator.SECURE_FRAME_SIZE) {
+                        val secure = buffer.copyOf()
+                        val data = authenticator.unwrap(secure) ?: continue
                         packetReceiver(data, -30)
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "UDP socket stopped or error: ")
+                if (isRunning) Log.w(TAG, "UDP bearer stopped", e)
             }
         }
     }
 
-    fun broadcastPacket(bytes: ByteArray) {
-        if (bytes.size != ProtocolConstants.PACKET_SIZE) return
+    fun broadcastPacket(secureFrame: ByteArray) {
+        if (secureFrame.size != AirHopPacketAuthenticator.SECURE_FRAME_SIZE) return
         scope.launch {
             try {
                 val sock = socket ?: return@launch
-                val broadcastAddr = InetAddress.getByName("255.255.255.255")
-                val packet = DatagramPacket(bytes, bytes.size, broadcastAddr, MESH_PORT)
-                sock.send(packet)
+                val address = InetAddress.getByName("255.255.255.255")
+                sock.send(DatagramPacket(secureFrame, secureFrame.size, address, MESH_PORT))
             } catch (e: Exception) {
-                Log.w(TAG, "UDP broadcast failed: ")
+                Log.w(TAG, "UDP broadcast failed", e)
             }
         }
     }
 
     fun stop() {
         isRunning = false
-        try {
-            socket?.close()
-        } catch (_: Exception) {}
+        try { socket?.close() } catch (_: Exception) {}
         socket = null
     }
 }
