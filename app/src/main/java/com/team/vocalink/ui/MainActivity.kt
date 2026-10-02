@@ -364,9 +364,7 @@ class MainActivity : AppCompatActivity() {
                 "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over Bluetooth LE Coded PHY (up to 1km) and local offline mesh until it reaches rescue personnel.\n\n" +
                 "GUARANTEED BLUE TICK (✓✓):\n" +
                 "When Phone 2 receives your alert and reads it aloud, it automatically returns an encrypted ACK packet. Your single checkmark (✓) instantly turns into a WhatsApp-style Double Blue Tick (✓✓)!\n\n" +
-                "ACTIVE AIRHOP RELAYS IN RANGE:\n" +
-                "• Relay Node #A491 (RSSI -42 dBm, ~1.5m away)\n" +
-                "• Relay Node #B720 (Hop Count 1, ~25m away)\n" +
+                "ACTIVE AIRHOP RELAYS OBSERVED:\n" +
                 "• Active nodes observed by this device: $activeCount"
             )
             .setPositiveButton("📡 PING ALL RELAYS") { _, _ ->
