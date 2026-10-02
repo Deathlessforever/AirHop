@@ -49,7 +49,10 @@ class ChatManager(
     val deliveryEvent: SharedFlow<Int> = _deliveryEvent.asSharedFlow()
 
     init {
-        val raw = prefs.getString(outboxKey, null)\n        val array = raw?.let { runCatching { JSONArray(it) }.getOrNull() }\n        if (array != null) for (i in 0 until array.length()) retryOutbox(array.getJSONObject(i).optInt("id"))\n    }
+        val raw = prefs.getString(outboxKey, null)
+        val array = raw?.let { runCatching { JSONArray(it) }.getOrNull() }
+        if (array != null) for (i in 0 until array.length()) retryOutbox(array.getJSONObject(i).optInt("id"))
+    }
 
     fun sendMessage(
         text: String,
