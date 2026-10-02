@@ -65,7 +65,7 @@ class BlindRelayManager(
         // 1. Decode and automatic RS(40,32) error correction in Native C++
         val decodeResult: PacketRepairResult? = AirHopNative.decodeAndRepairPacket(rawPacket)
         if (decodeResult == null || !decodeResult.success) {
-            Log.w(TAG, "Packet $preliminaryMsgId dropped: unrecoverable RS FEC errors (>4 bytes corrupted)")
+            Log.w(TAG, "Packet dropped: FEC decode failed")
             return
         }
 
