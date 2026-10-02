@@ -498,11 +498,17 @@ class MainActivity : AppCompatActivity() {
             action = AirHopMeshService.ACTION_START
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try { startForegroundService(intent) } catch (e: Exception) {\n                android.util.Log.e("AirHopUI", "Unable to start mesh service", e)\n                Toast.makeText(this, "Mesh could not start. Check nearby-device permissions.", Toast.LENGTH_LONG).show()\n                return\n            }
+            try { startForegroundService(intent) } catch (e: Exception) {
+                android.util.Log.e("AirHopUI", "Unable to start mesh service", e)
+                Toast.makeText(this, "Mesh could not start. Check nearby-device permissions.", Toast.LENGTH_LONG).show()
+                return
+            }
         } else {
             startService(intent)
         }
-        try { bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE) } catch (e: Exception) {\n            android.util.Log.e("AirHopUI", "Unable to bind mesh service", e)\n        }
+        try { bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE) } catch (e: Exception) {
+            android.util.Log.e("AirHopUI", "Unable to bind mesh service", e)
+        }
     }
 
     private fun exportTriageLogs() {
@@ -551,7 +557,11 @@ class MainActivity : AppCompatActivity() {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        if (perms.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {\n            startAndBindMeshService()\n            return\n        }\n        permissionLauncher.launch(perms.toTypedArray())
+        if (perms.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
+            startAndBindMeshService()
+            return
+        }
+        permissionLauncher.launch(perms.toTypedArray())
     }
 
     override fun onDestroy() {
