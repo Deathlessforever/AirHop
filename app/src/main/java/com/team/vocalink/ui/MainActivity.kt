@@ -254,7 +254,7 @@ class MainActivity : AppCompatActivity() {
 
         // Demo Peer ➔ Blue Tick Simulator (Loopback evaluation for 1 phone)
         btnDemoScenarios.setOnClickListener {
-            simulatePeerExchangeAndBlueTick()
+            Toast.makeText(this, "Use two physical AirHop devices to verify delivery.", Toast.LENGTH_LONG).show()
         }
 
         // Export Logs as CSV
@@ -351,8 +351,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showRelayExplanationDialog() {
-        val activeCount = meshService?.bleMeshEngine?.activePeerCount?.value ?: 2
-        val displayCount = if (activeCount > 0) activeCount else 2
+        val activeCount = meshService?.bleMeshEngine?.activePeerCount?.value ?: 0
 
         AlertDialog.Builder(this)
             .setTitle("📡 AirHop Mesh: Zero Contacts Needed")
@@ -368,7 +367,7 @@ class MainActivity : AppCompatActivity() {
                 "ACTIVE AIRHOP RELAYS IN RANGE:\n" +
                 "• Relay Node #A491 (RSSI -42 dBm, ~1.5m away)\n" +
                 "• Relay Node #B720 (Hop Count 1, ~25m away)\n" +
-                "• Total Active Nodes: $displayCount in local mesh"
+                "• Active nodes observed by this device: $activeCount"
             )
             .setPositiveButton("📡 PING ALL RELAYS") { _, _ ->
                 pingMeshRelays()
@@ -515,8 +514,11 @@ class MainActivity : AppCompatActivity() {
         // 3. Observe Peer Counts and update the Zero-Contact banner
         lifecycleScope.launch {
             service.bleMeshEngine.activePeerCount.collectLatest { count ->
-                val displayCount = if (count > 0) count else 2
-                btnNearbyPeers.text = "🟢 $displayCount Nearby Relays Active • Zero Contacts Needed [ℹ️ Tap Info]"
+                btnNearbyPeers.text = if (count == 0) {
+                    "No nearby AirHop nodes observed"
+                } else {
+                    "🟢 $count nearby AirHop nodes observed"
+                }
             }
         }
 
