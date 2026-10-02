@@ -18,7 +18,7 @@ data class AirHopNode(
 class NodePresenceDirectory(context: Context) {
     companion object { private const val TTL_MS = 90_000L; private const val PREFS = "airhop_presence" }
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    private val nodes = ConcurrentHashMap<Int, AirHopNode>()
+    private val nodeMap = ConcurrentHashMap<Int, AirHopNode>()
     private val _nodes = MutableStateFlow<List<AirHopNode>>(emptyList())
     val nodes: StateFlow<List<AirHopNode>> = _nodes.asStateFlow()
 
@@ -27,15 +27,15 @@ class NodePresenceDirectory(context: Context) {
         set(value) { prefs.edit().putBoolean("visible", value).apply() }
 
     fun observe(nodeId: Int, lat: Double, lon: Double, rssi: Int, relayCapable: Boolean) {
-        nodes[nodeId] = AirHopNode(nodeId, lat, lon, rssi, System.currentTimeMillis(), relayCapable)
+        nodeMap[nodeId] = AirHopNode(nodeId, lat, lon, rssi, System.currentTimeMillis(), relayCapable)
         prune()
     }
 
     fun prune() {
         val cutoff = System.currentTimeMillis() - TTL_MS
-        nodes.entries.removeIf { it.value.lastSeenMs < cutoff }
-        _nodes.value = nodes.values.sortedByDescending { it.lastSeenMs }
+        nodeMap.entries.removeIf { it.value.lastSeenMs < cutoff }
+        _nodes.value = nodeMap.values.sortedByDescending { it.lastSeenMs }
     }
 
-    fun clear() { nodes.clear(); _nodes.value = emptyList() }
+    fun clear() { nodeMap.clear(); _nodes.value = emptyList() }
 }
