@@ -145,6 +145,8 @@ class WifiAwareMeshEngine(
 
     fun stop() {
         try { context.unregisterReceiver(stateReceiver) } catch (_: Exception) {}
+        networkCallbacks.forEach { try { connectivity.unregisterNetworkCallback(it) } catch (_: Exception) {} }
+        networkCallbacks.clear()
 
         links.values.forEach { closeLink(it) }
         links.clear()
