@@ -27,7 +27,7 @@ class UdpMeshSocket(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var socket: DatagramSocket? = null
-    private var isRunning = false
+    private var isRunning = false\n    private val authenticator = com.team.vocalink.security.AirHopPacketAuthenticator(context)
 
     fun start() {
         if (isRunning) return
