@@ -207,7 +207,7 @@ class WifiAwareMeshEngine(
                 ) {
                     remember(peerHandle)
                     try {
-                        session.sendMessage(peerHandle, 1, HELLO_TEXT.toByteArray())
+                        subscribeSession?.sendMessage(peerHandle, 1, HELLO_TEXT.toByteArray())
                     } catch (e: Exception) {
                         Log.w(TAG, "Wi-Fi Aware HELLO failed", e)
                     }
@@ -292,7 +292,7 @@ class WifiAwareMeshEngine(
             .build()
 
         requestAwareNetwork(specifier) { network ->
-            val awareInfo = network.getNetworkCapabilities()?.transportInfo as? WifiAwareNetworkInfo ?: return@requestAwareNetwork
+            val awareInfo = connectivity.getNetworkCapabilities(network)?.transportInfo as? WifiAwareNetworkInfo ?: return@requestAwareNetwork
             val address = awareInfo.peerIpv6Addr ?: return@requestAwareNetwork
 
             ioExecutor.execute {
