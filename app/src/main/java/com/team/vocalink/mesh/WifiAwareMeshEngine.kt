@@ -9,7 +9,7 @@ import android.content.pm.PackageManager
 import android.net.wifi.aware.*
 import android.os.Build
 import android.util.Log
-import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.core.ProtocolConstants\nimport com.team.vocalink.security.AirHopPacketAuthenticator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -32,7 +32,7 @@ class WifiAwareMeshEngine(
     private val wifiAwareManager = context.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
     private var awareSession: WifiAwareSession? = null
     private var publishDiscoverySession: PublishDiscoverySession? = null
-    private var subscribeDiscoverySession: SubscribeDiscoverySession? = null
+    private var subscribeDiscoverySession: SubscribeDiscoverySession? = null\n    private val authenticator = AirHopPacketAuthenticator(context)
 
     private val _isAwareAvailable = MutableStateFlow(false)
     val isAwareAvailable: StateFlow<Boolean> = _isAwareAvailable.asStateFlow()
@@ -188,7 +188,7 @@ class WifiAwareMeshEngine(
      * Sends a 40-byte AirHop packet to all discovered Wi-Fi Aware cluster peers.
      */
     fun sendBurstPacket(packet40Bytes: ByteArray) {
-        if (packet40Bytes.size != ProtocolConstants.PACKET_SIZE) return
+        if (packet40Bytes.size != ProtocolConstants.PACKET_SIZE) return\n        val secure = authenticator.wrap(packet40Bytes)
 
         val session = publishDiscoverySession ?: subscribeDiscoverySession ?: return
         val now = System.currentTimeMillis()
@@ -199,7 +199,7 @@ class WifiAwareMeshEngine(
 
         for (peer in discoveredPeers.keys) {
             try {
-                session.sendMessage(peer, 1, packet40Bytes)
+                session.sendMessage(peer, 1, secure)
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to send burst packet to peer $peer", e)
             }
