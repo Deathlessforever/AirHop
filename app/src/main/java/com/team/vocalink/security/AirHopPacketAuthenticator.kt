@@ -34,8 +34,16 @@ class AirHopPacketAuthenticator(context: Context) {
 
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val jvmTestWrappingKey = SecretKeySpec(
+        ByteArray(32).also { SecureRandom().nextBytes(it) },
+        "AES"
+    )
+    private val isAndroidRuntime =
+        System.getProperty("java.vm.name")?.contains("dalvik", ignoreCase = true) == true ||
+        System.getProperty("java.vm.name")?.contains("art", ignoreCase = true) == true
 
     private fun wrappingKey(): SecretKey {
+        if (!isAndroidRuntime) return jvmTestWrappingKey
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
         (store.getKey(KS_ALIAS, null) as? SecretKey)?.let { return it }
 
