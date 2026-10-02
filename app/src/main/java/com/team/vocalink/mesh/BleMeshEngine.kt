@@ -222,6 +222,105 @@ class BleMeshEngine(
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun startPresenceAdvertising() {
+        val adv = advertiser ?: return
+        val location = presenceLocationProvider?.invoke() ?: return
+        if (!location.third) return
+        val latE7 = (location.first * 1e7).toInt()
+        val lonE7 = (location.second * 1e7).toInt()
+        val payload = buildPresencePayload(latE7, lonE7, System.currentTimeMillis())
+        try {
+            val adapter = bluetoothAdapter ?: return
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !adapter.isLeExtendedAdvertisingSupported) return
+            val params = AdvertisingSetParameters.Builder()
+                .setLegacyMode(false)
+                .setConnectable(false)
+                .setScannable(false)
+                .setPrimaryPhy(BluetoothDevice.PHY_LE_1M)
+                .setSecondaryPhy(if (_isCodedPhySupported.value) BluetoothDevice.PHY_LE_CODED else BluetoothDevice.PHY_LE_1M)
+                .setInterval(AdvertisingSetParameters.INTERVAL_MEDIUM)
+                .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_HIGH)
+                .build()
+            val data = AdvertiseData.Builder()
+                .addServiceData(presenceUuid, payload)
+                .setIncludeDeviceName(false)
+                .setIncludeTxPowerLevel(false)
+                .build()
+            if (presenceAdvSet == null) {
+                adv.startAdvertisingSet(params, data, null, null, null, presenceAdvertisingSetCallback)
+            } else {
+                presenceAdvSet?.setAdvertisingData(data)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "BLE presence advertising failed", e)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopPresenceAdvertising() {
+        try { if (presenceAdvSet != null) advertiser?.stopAdvertisingSet(presenceAdvertisingSetCallback) } catch (_: Exception) {}
+        presenceAdvSet = null
+    }
+
+    private val presenceRefresh = object : Runnable {
+        override fun run() {
+            if (bluetoothAdapter?.isEnabled == true) startPresenceAdvertising()
+            handler.postDelayed(this, 10_000L)
+        }
+    }
+
+    private fun buildPresencePayload(latE7: Int, lonE7: Int, timestampMs: Long): ByteArray {
+        val body = java.nio.ByteBuffer.allocate(25).order(java.nio.ByteOrder.BIG_ENDIAN).apply {
+            put(byteArrayOf('A'.code.toByte(), 'H'.code.toByte(), 'P'.code.toByte(), 'R'.code.toByte()))
+            putInt(nodeIdentity.intId())
+            putInt(latE7)
+            putInt(lonE7)
+            putLong(timestampMs)
+            put(1.toByte())
+        }.array()
+        return body + presenceMac(body)
+    }
+
+    private fun presenceMac(body: ByteArray): ByteArray {
+        val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+        mac.init(javax.crypto.spec.SecretKeySpec(authenticator.exportKey().toByteArray(Charsets.UTF_8), "HmacSHA256"))
+        return mac.doFinal(body).copyOf(8)
+    }
+
+    private fun handlePresence(payload: ByteArray, rssi: Int) {
+        if (payload.size != 33) return
+        val body = payload.copyOfRange(0, 25)
+        val tag = payload.copyOfRange(25, 33)
+        if (!java.security.MessageDigest.isEqual(presenceMac(body), tag)) return
+        val buffer = java.nio.ByteBuffer.wrap(body).order(java.nio.ByteOrder.BIG_ENDIAN)
+        val magic = ByteArray(4); buffer.get(magic)
+        if (!magic.contentEquals(byteArrayOf('A'.code.toByte(), 'H'.code.toByte(), 'P'.code.toByte(), 'R'.code.toByte()))) return
+        val nodeId = buffer.int
+        val lat = buffer.int / 1e7
+        val lon = buffer.int / 1e7
+        val timestamp = buffer.long
+        val relayCapable = buffer.get().toInt() != 0
+        val now = System.currentTimeMillis()
+        if (kotlin.math.abs(now - timestamp) > 120_000L) return
+        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return
+        presenceCallback?.invoke(nodeId, lat, lon, rssi)
+    }
+
+    private val presenceAdvertisingSetCallback = object : AdvertisingSetCallback() {
+        override fun onAdvertisingSetStarted(advertisingSet: AdvertisingSet?, txPower: Int, status: Int) {
+            if (status == ADVERTISE_SUCCESS) {
+                presenceAdvSet = advertisingSet
+                Log.i(TAG, "BLE presence advertising active")
+            } else {
+                Log.w(TAG, "BLE presence advertising start failed: $status")
+            }
+        }
+        override fun onAdvertisingSetStopped(advertisingSet: AdvertisingSet?) {
+            if (presenceAdvSet == advertisingSet) presenceAdvSet = null
+        }
+    }
+
     private val advertisingSetCallback = object : AdvertisingSetCallback() {
         override fun onAdvertisingSetStarted(advertisingSet: AdvertisingSet?, txPower: Int, status: Int) {
             if (status == ADVERTISE_SUCCESS) {
