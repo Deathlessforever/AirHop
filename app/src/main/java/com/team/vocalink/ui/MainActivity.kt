@@ -179,85 +179,57 @@ class MainActivity : AppCompatActivity() {
         rvChatMessages.adapter = chatAdapter
     }
 
-    private fun safeAction(action: () -> Unit) {\n        try { action() } catch (e: Exception) {\n            android.util.Log.e("AirHopUI", "Action failed", e)\n            Toast.makeText(this, "AirHop could not complete that action. Check permissions and radio status.", Toast.LENGTH_LONG).show()\n        }\n    }\n\n    private fun setupListeners() {
-        // Multi-Language Selector Dialog
-        btnSelectLanguage.setOnClickListener {
-            showLanguageSelectionDialog()
+    private fun safeAction(action: () -> Unit) {
+        try {
+            action()
+        } catch (e: Exception) {
+            android.util.Log.e("AirHopUI", "Action failed", e)
+            Toast.makeText(this, "AirHop could not complete that action. Check permissions and radio status.", Toast.LENGTH_LONG).show()
         }
+    }
 
-        // 72-Hour Disaster Battery Saver Mode Toggle
-        btnBatteryMode.setOnClickListener {
-            toggleBatteryMode()
-        }
+    private fun setupListeners() {
+        btnSelectLanguage.setOnClickListener { safeAction { showLanguageSelectionDialog() } }
+        btnBatteryMode.setOnClickListener { safeAction { toggleBatteryMode() } }
+        btnNearbyPeers.setOnClickListener { safeAction { startActivity(Intent(this, AirHopMapActivity::class.java)) } }
+        btnSos.setOnClickListener { safeAction { toggleSosSirenAndStrobe() } }
 
-        // Nearby Relays & Zero-Contact Explanation Dialog
-        btnNearbyPeers.setOnClickListener {
-            startActivity(Intent(this, AirHopMapActivity::class.java))
-        }
-
-        // Emergency SOS Siren & Optical Strobe Beacon Toggle
-        btnSos.setOnClickListener {
-            toggleSosSirenAndStrobe()
-        }
-
-        // Quick Situational Triage Report
         btnTriageReport.setOnClickListener {
-            SituationalTriageDialog.show(this) { reportText, isSos ->
-                sendEmergencyMessage(reportText, isSos = isSos)
-                Toast.makeText(this, "Emergency Situational Report Broadcasted!", Toast.LENGTH_SHORT).show()
+            safeAction {
+                SituationalTriageDialog.show(this) { reportText, isSos ->
+                    safeAction {
+                        sendEmergencyMessage(reportText, isSos = isSos)
+                        Toast.makeText(this, "Emergency report sent to the mesh.", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
 
-        // Offline First-Aid & Emergency Survival Guide
-        btnSurvivalGuide.setOnClickListener {
-            EmergencySurvivalGuide.showGuideDialog(this)
-        }
+        btnSurvivalGuide.setOnClickListener { safeAction { EmergencySurvivalGuide.showGuideDialog(this) } }
 
-        // Send Button
-        btnSendMessage.setOnClickListener { safeAction {
-            val text = etMessageInput.text.toString().trim()
-            if (text.isNotBlank()) {
-                sendEmergencyMessage(text)
-                etMessageInput.setText("")
-            } else {
-                val defaultMsg = DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte)
-                sendEmergencyMessage(defaultMsg, phraseIdOverride = 1)
+        btnSendMessage.setOnClickListener {
+            safeAction {
+                val text = etMessageInput.text.toString().trim()
+                if (text.isNotBlank()) {
+                    sendEmergencyMessage(text)
+                    etMessageInput.setText("")
+                } else {
+                    val defaultMsg = DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte)
+                    sendEmergencyMessage(defaultMsg, phraseIdOverride = 1)
+                }
             }
         }
 
-        // Voice Microphone (Speech-To-Text in selected language)
-        btnMicVoice.setOnClickListener {
-            launchVoiceRecognizer()
-        }
+        btnMicVoice.setOnClickListener { safeAction { launchVoiceRecognizer() } }
 
-        // Quick Preset Chips (in selected language)
-        chipPresetFlood.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 1)
-        }
-        chipPresetEvac.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(2, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 2)
-        }
-        chipPresetMedical.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(3, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 3)
-        }
-        chipPresetRubble.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(4, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 4)
-        }
-        chipPresetWater.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(5, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 5)
-        }
+        chipPresetFlood.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte), phraseIdOverride = 1) } }
+        chipPresetEvac.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(2, selectedLanguage.langByte), phraseIdOverride = 2) } }
+        chipPresetMedical.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(3, selectedLanguage.langByte), phraseIdOverride = 3) } }
+        chipPresetRubble.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(4, selectedLanguage.langByte), phraseIdOverride = 4) } }
+        chipPresetWater.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(5, selectedLanguage.langByte), phraseIdOverride = 5) } }
 
-        // Export Logs as CSV
         btnSecurity.setOnClickListener { safeAction { showSecurityDialog() } }
-
-        btnExportLogs.setOnClickListener {
-            exportTriageLogs()
-        }
+        btnExportLogs.setOnClickListener { safeAction { exportTriageLogs() } }
     }
 
     private fun toggleSosSirenAndStrobe() {
