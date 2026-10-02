@@ -99,7 +99,7 @@ class BleMeshEngine(
         }
     }
 
-    fun setSecondaryBroadcaster(broadcaster: ((ByteArray) -> Unit)?) {}
+    private var secondaryBroadcaster: ((ByteArray) -> Unit)? = null\n    fun setSecondaryBroadcaster(broadcaster: ((ByteArray) -> Unit)?) { secondaryBroadcaster = broadcaster }
 
     @SuppressLint("MissingPermission")
     private fun startScanning() {
