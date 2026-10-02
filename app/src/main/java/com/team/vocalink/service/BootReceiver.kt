@@ -18,19 +18,24 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        if ((action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) &&
-            context.getSharedPreferences("airhop_settings", Context.MODE_PRIVATE)
-                .getBoolean("mesh_enabled", false)) {
+        val meshEnabled = context.getSharedPreferences("airhop_settings", Context.MODE_PRIVATE)
+            .getBoolean("mesh_enabled", false)
+        if ((action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) && meshEnabled) {
             Log.i(TAG, "Boot or package update detected ($action). Resuming disaster mesh service.")
 
             val serviceIntent = Intent(context, AirHopMeshService::class.java).apply {
                 this.action = AirHopMeshService.ACTION_START
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(serviceIntent)
-            } else {
-                context.startService(serviceIntent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+            } catch (e: Exception) {
+                // Android may reject background FGS starts depending on OS state/policy.
+                Log.w(TAG, "Unable to resume mesh automatically; user must start AirHop.", e)
             }
         }
     }
