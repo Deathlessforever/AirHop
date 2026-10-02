@@ -179,7 +179,7 @@ class MainActivity : AppCompatActivity() {
         rvChatMessages.adapter = chatAdapter
     }
 
-    private fun setupListeners() {
+    private fun safeAction(action: () -> Unit) {\n        try { action() } catch (e: Exception) {\n            android.util.Log.e("AirHopUI", "Action failed", e)\n            Toast.makeText(this, "AirHop could not complete that action. Check permissions and radio status.", Toast.LENGTH_LONG).show()\n        }\n    }\n\n    private fun setupListeners() {
         // Multi-Language Selector Dialog
         btnSelectLanguage.setOnClickListener {
             showLanguageSelectionDialog()
@@ -214,7 +214,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Send Button
-        btnSendMessage.setOnClickListener {
+        btnSendMessage.setOnClickListener { safeAction {
             val text = etMessageInput.text.toString().trim()
             if (text.isNotBlank()) {
                 sendEmergencyMessage(text)
@@ -253,7 +253,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Export Logs as CSV
-        btnSecurity.setOnClickListener { showSecurityDialog() }
+        btnSecurity.setOnClickListener { safeAction { showSecurityDialog() } }
 
         btnExportLogs.setOnClickListener {
             exportTriageLogs()
@@ -526,11 +526,11 @@ class MainActivity : AppCompatActivity() {
             action = AirHopMeshService.ACTION_START
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
+            try { startForegroundService(intent) } catch (e: Exception) {\n                android.util.Log.e("AirHopUI", "Unable to start mesh service", e)\n                Toast.makeText(this, "Mesh could not start. Check nearby-device permissions.", Toast.LENGTH_LONG).show()\n                return\n            }
         } else {
             startService(intent)
         }
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        try { bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE) } catch (e: Exception) {\n            android.util.Log.e("AirHopUI", "Unable to bind mesh service", e)\n        }
     }
 
     private fun exportTriageLogs() {
@@ -579,7 +579,7 @@ class MainActivity : AppCompatActivity() {
             perms.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        permissionLauncher.launch(perms.toTypedArray())
+        if (perms.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {\n            startAndBindMeshService()\n            return\n        }\n        permissionLauncher.launch(perms.toTypedArray())
     }
 
     override fun onDestroy() {
