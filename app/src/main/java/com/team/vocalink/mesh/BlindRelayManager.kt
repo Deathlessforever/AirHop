@@ -80,12 +80,10 @@ class BlindRelayManager(
         val latE7 = decodeResult.latE7
         val lonE7 = decodeResult.lonE7
         val tokens = decodeResult.tokens ?: ByteArray(13)
-
-        // Dispatch to ChatManager / UI
-        onPacketDecoded?.invoke(decodeResult)
-
-        // If this is an ACK delivery receipt, finish pipeline without sounding sirens
         val isAck = (flags and ProtocolConstants.FLAG_ACK.toInt()) != 0
+        val destinationId = decodeResult.targetZone
+        val isLocalDestination = destinationId == 0 || destinationId == nodeIdentity.intId()
+        if (isAck || isLocalDestination) onPacketDecoded?.invoke(decodeResult)
 
         // 2. Geofence evaluation against NavIC / GPS coordinates
         val geofenceStatus = geofenceManager.checkPoint(latE7 / 1e7, lonE7 / 1e7)
