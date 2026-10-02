@@ -23,7 +23,7 @@ class NodePresenceDirectory(context: Context) {
     val nodes: StateFlow<List<AirHopNode>> = _nodes.asStateFlow()
 
     var visible: Boolean
-        get() = prefs.getBoolean("visible", true)
+        get() = prefs.getBoolean("visible", false)
         set(value) { prefs.edit().putBoolean("visible", value).apply() }
 
     fun observe(nodeId: Int, lat: Double, lon: Double, rssi: Int, relayCapable: Boolean) {
