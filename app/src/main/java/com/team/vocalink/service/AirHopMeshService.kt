@@ -247,6 +247,7 @@ class AirHopMeshService : Service() {
     override fun onDestroy() {
         serviceJob.cancel()
         stopMeshEngines()
+        try { if (::blindRelayManager.isInitialized) blindRelayManager.close() } catch (e: Exception) { Log.w(TAG, "Relay shutdown failed", e) }
         try { if (::chatManager.isInitialized) chatManager.close() } catch (e: Exception) { Log.w(TAG, "Chat shutdown failed", e) }
         try { if (::offlineTtsEngine.isInitialized) offlineTtsEngine.shutdown() } catch (e: Exception) { Log.w(TAG, "TTS shutdown failed", e) }
         try {
