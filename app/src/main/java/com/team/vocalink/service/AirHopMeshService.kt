@@ -122,8 +122,8 @@ class AirHopMeshService : Service() {
 
         audioIngestEngine = AudioIngestEngine(this) { tokens ->
             val loc = geofenceManager.currentLocation.value
-            val latE7 = ((loc?.latitude ?: ProtocolConstants.BENCHMARK_MYSURU_LAT) * 1e7).toInt()
-            val lonE7 = ((loc?.longitude ?: ProtocolConstants.BENCHMARK_MYSURU_LON) * 1e7).toInt()
+            val latE7 = ((loc?.latitude ?: 0.0) * 1e7).toInt()
+            val lonE7 = ((loc?.longitude ?: 0.0) * 1e7).toInt()
 
             blindRelayManager.broadcastOriginPacket(
                 flags = ProtocolConstants.LANG_KANNADA,
