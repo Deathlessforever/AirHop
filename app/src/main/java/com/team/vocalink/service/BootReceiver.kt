@@ -20,23 +20,24 @@ class BootReceiver : BroadcastReceiver() {
         val action = intent.action
         val meshEnabled = context.getSharedPreferences("airhop_settings", Context.MODE_PRIVATE)
             .getBoolean("mesh_enabled", false)
-        if ((action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) && meshEnabled) {
-            Log.i(TAG, "Boot or package update detected ($action). Resuming disaster mesh service.")
-
-            val serviceIntent = Intent(context, AirHopMeshService::class.java).apply {
-                this.action = AirHopMeshService.ACTION_START
-            }
-
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(serviceIntent)
-                } else {
-                    context.startService(serviceIntent)
-                }
-            } catch (e: Exception) {
-                // Android may reject background FGS starts depending on OS state/policy.
-                Log.w(TAG, "Unable to resume mesh automatically; user must start AirHop.", e)
-            }
+        if ((action != Intent.ACTION_BOOT_COMPLETED && action != Intent.ACTION_MY_PACKAGE_REPLACED) || !meshEnabled) {
+            return
         }
-    }
+
+        val serviceIntent = Intent(context, AirHopMeshService::class.java).apply {
+            this.action = AirHopMeshService.ACTION_START
+        }
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+            Log.i(TAG, "Requested AirHop mesh recovery after $action")
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Platform denied automatic mesh recovery after $action", e)
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "App state denied automatic mesh recovery after $action", e)
+        }    }
 }
