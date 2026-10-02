@@ -334,36 +334,16 @@
     </LinearLayout>
 
     <!-- ============================================================ -->
-    <!-- ACTION STRIP: TEST SIMULATION & LOG EXPORT                   -->
+    <!-- ACTION STRIP: EXPORT REAL DISASTER LOGS                         -->
     <!-- ============================================================ -->
-    <LinearLayout
+    <Button
+        android:id="@+id/btnExportLogs"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/btnDemoScenarios"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1.6"
-            android:background="@drawable/bg_card_hud"
-            android:text="🧪 TEST PEER ➔ BLUE TICK"
-            android:textColor="@color/accent_coded_phy"
-            android:textSize="9sp"
-            android:textStyle="bold"
-            android:fontFamily="monospace" />
-
-        <Button
-            android:id="@+id/btnExportLogs"
-            android:layout_width="0dp"
-            android:layout_height="36dp"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:background="@drawable/bg_badge"
-            android:text="EXPORT CSV"
-            android:textColor="@color/accent_cyan"
-            android:textSize="9sp"
-            android:fontFamily="monospace" />
-    </LinearLayout>
+        android:layout_height="36dp"
+        android:background="@drawable/bg_badge"
+        android:text="EXPORT DISASTER LOG"
+        android:textColor="@color/accent_cyan"
+        android:textSize="9sp"
+        android:fontFamily="monospace" />
 
 </LinearLayout>
