@@ -18,7 +18,9 @@ class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
-        if ((action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) &&\n            context.getSharedPreferences("airhop_settings", Context.MODE_PRIVATE)\n                .getBoolean("mesh_enabled", false)) {
+        if ((action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) &&
+            context.getSharedPreferences("airhop_settings", Context.MODE_PRIVATE)
+                .getBoolean("mesh_enabled", false)) {
             Log.i(TAG, "Boot or package update detected ($action). Resuming disaster mesh service.")
 
             val serviceIntent = Intent(context, AirHopMeshService::class.java).apply {
