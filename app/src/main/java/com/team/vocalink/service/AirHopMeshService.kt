@@ -109,7 +109,8 @@ class AirHopMeshService : Service() {
             bleMeshEngine = bleMeshEngine,
             geofenceManager = geofenceManager,
             dndBypassAlertManager = dndAlertManager,
-            neuralTtsHook = neuralTtsHook
+            neuralTtsHook = neuralTtsHook,
+            context = this
         )
 
         chatManager = com.team.vocalink.chat.ChatManager(this, bleMeshEngine, offlineTtsEngine) { msgId ->
@@ -128,7 +129,7 @@ class AirHopMeshService : Service() {
             blindRelayManager.broadcastOriginPacket(
                 flags = ProtocolConstants.LANG_KANNADA,
                 ttl = ProtocolConstants.DEFAULT_TTL,
-                targetZone = 0x01,
+                targetZone = 0,
                 latE7 = latE7,
                 lonE7 = lonE7,
                 tokens = tokens
