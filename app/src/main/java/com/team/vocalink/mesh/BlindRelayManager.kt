@@ -36,7 +36,8 @@ class BlindRelayManager(
     }
 
     private val relayScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private val bloomFilter = RotatingBloomFilter()\n    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
+    private val bloomFilter = RotatingBloomFilter()
+    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
 
     private val _waterfallEvents = MutableSharedFlow<WaterfallLogItem>(replay = 50)
     val waterfallEvents: SharedFlow<WaterfallLogItem> = _waterfallEvents.asSharedFlow()
