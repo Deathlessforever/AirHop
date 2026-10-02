@@ -72,6 +72,7 @@ class WifiAwareMeshEngine(
     private val links = ConcurrentHashMap<PeerHandle, Link>()
     private var serverSocket: ServerSocket? = null
     private var serverPort = 0
+    private var stateReceiverRegistered = false
 
     private val _available = MutableStateFlow(false)
     val isAwareAvailable: StateFlow<Boolean> = _available.asStateFlow()
@@ -120,12 +121,17 @@ class WifiAwareMeshEngine(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !_available.value) return
         if (ioExecutor.isShutdown || ioExecutor.isTerminated) ioExecutor = Executors.newCachedThreadPool()
 
-        try {
-            context.registerReceiver(
-                stateReceiver,
-                IntentFilter(WifiAwareManager.ACTION_WIFI_AWARE_STATE_CHANGED)
-            )
-        } catch (_: Exception) {}
+        if (!stateReceiverRegistered) {
+            try {
+                context.registerReceiver(
+                    stateReceiver,
+                    IntentFilter(WifiAwareManager.ACTION_WIFI_AWARE_STATE_CHANGED)
+                )
+                stateReceiverRegistered = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Wi-Fi Aware state receiver registration failed", e)
+            }
+        }
 
         if (awareSession != null) return
 
@@ -144,7 +150,10 @@ class WifiAwareMeshEngine(
     }
 
     fun stop() {
-        try { context.unregisterReceiver(stateReceiver) } catch (_: Exception) {}
+        if (stateReceiverRegistered) {
+            try { context.unregisterReceiver(stateReceiver) } catch (_: Exception) {}
+            stateReceiverRegistered = false
+        }
         networkCallbacks.forEach { try { connectivity.unregisterNetworkCallback(it) } catch (_: Exception) {} }
         networkCallbacks.clear()
 
@@ -436,6 +445,8 @@ class WifiAwareMeshEngine(
             request,
             object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
+                    networkCallbacks.remove(this)
+                    try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) {}
                     onAvailable(network)
                 }
 
@@ -453,8 +464,12 @@ class WifiAwareMeshEngine(
         )
     }
 
-    private fun psk(): String =
-        auth.exportKey().replace("=", "").take(63).padEnd(8, '0')
+    private fun psk(): String {
+        // Derive a stable 64-hex-character PSK from the shared key.
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(auth.exportKey().toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }.take(63)
+    }
 
     private fun closeLink(link: Link) {
         try { link.output.close() } catch (_: Exception) {}
