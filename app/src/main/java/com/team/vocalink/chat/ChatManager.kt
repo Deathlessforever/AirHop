@@ -35,7 +35,7 @@ class ChatManager(
         private const val TAG = "ChatManager"
     }
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private val prefs = context.getSharedPreferences("airhop_messages", Context.MODE_PRIVATE)
     private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
     private val storageKey = "messages_v1"
@@ -53,6 +53,8 @@ class ChatManager(
         val array = raw?.let { runCatching { JSONArray(it) }.getOrNull() }
         if (array != null) for (i in 0 until array.length()) retryOutbox(array.getJSONObject(i).optInt("id"))
     }
+
+    fun close() { scope.cancel() }
 
     fun sendMessage(
         text: String,
