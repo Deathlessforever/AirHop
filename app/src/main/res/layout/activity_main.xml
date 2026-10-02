@@ -86,7 +86,7 @@
         android:layout_height="42dp"
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_card_hud"
-        android:text="No nearby AirHop nodes observed"
+        android:text="📍 AirHop Map • waiting for nearby nodes"
         android:textColor="@color/accent_coded_phy"/>
 
     <LinearLayout
