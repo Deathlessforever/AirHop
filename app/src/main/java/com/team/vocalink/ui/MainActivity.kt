@@ -26,7 +26,6 @@ import com.team.vocalink.R
 import com.team.vocalink.core.ChatMessage
 import com.team.vocalink.core.DisasterPhraseCodebook
 import com.team.vocalink.core.MessageStatus
-import com.team.vocalink.core.PacketRepairResult
 import com.team.vocalink.core.ProtocolConstants
 import android.net.Uri
 import com.team.vocalink.alert.EmergencySurvivalGuide
@@ -402,8 +401,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         val loc = service.geofenceManager.currentLocation.value
-        val lat = loc?.latitude ?: ProtocolConstants.BENCHMARK_MYSURU_LAT
-        val lon = loc?.longitude ?: ProtocolConstants.BENCHMARK_MYSURU_LON
+        val lat = loc?.latitude ?: 0.0
+        val lon = loc?.longitude ?: 0.0
 
         val phraseId = phraseIdOverride ?: DisasterPhraseCodebook.getPhraseIdForText(text)
 
@@ -418,67 +417,6 @@ class MainActivity : AppCompatActivity() {
 
         tokenVisualizerView.updateAudioRms(0.75f, com.team.vocalink.core.VadState.ACTIVE)
         window.decorView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-    }
-
-    private fun simulatePeerExchangeAndBlueTick() {
-        val service = meshService ?: return
-
-        // 1. Send User 1 message in chosen language
-        val phraseId = 1
-        val alertText = DisasterPhraseCodebook.getPhrase(phraseId, selectedLanguage.langByte)
-        sendEmergencyMessage(alertText, phraseIdOverride = phraseId)
-
-        Toast.makeText(this, "User 1 sent packet over BLE... Single tick ✓", Toast.LENGTH_SHORT).show()
-
-        // 2. Simulate User 2 receiving it after 280ms -> Speaks aloud in selected language -> Dispatches ACK
-        rvChatMessages.postDelayed({
-            val lastSent = service.chatManager.messages.value.lastOrNull { it.isFromMe }
-            if (lastSent != null) {
-                // User 2 device speaks aloud in selected language
-                service.offlineTtsEngine.speak(alertText, selectedLanguage.langByte)
-
-                // Trigger ACK back to User 1
-                service.chatManager.handleIncomingPacket(
-                    PacketRepairResult(
-                        success = true,
-                        correctedBytes = 0,
-                        hadErrors = false,
-                        repairedPacket = null,
-                        msgId = 9999,
-                        flags = (ProtocolConstants.FLAG_ACK.toInt() or selectedLanguage.langByte.toInt()),
-                        ttl = 5,
-                        targetZone = lastSent.id, // target message confirmed
-                        latE7 = 0,
-                        lonE7 = 0,
-                        tokens = null
-                    )
-                )
-
-                window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                Toast.makeText(this, "User 2 received & spoke! Double Blue Tick ✓✓ activated!", Toast.LENGTH_LONG).show()
-
-                // 3. User 2 sends reply 1.2s later in selected language
-                rvChatMessages.postDelayed({
-                    val replyPhraseId = 6
-                    val replyText = DisasterPhraseCodebook.getPhrase(replyPhraseId, selectedLanguage.langByte)
-                    service.chatManager.handleIncomingPacket(
-                        PacketRepairResult(
-                            success = true,
-                            correctedBytes = 0,
-                            hadErrors = false,
-                            repairedPacket = null,
-                            msgId = (1000..9999).random(),
-                            flags = selectedLanguage.langByte.toInt(),
-                            ttl = 8,
-                            targetZone = 0x01,
-                            latE7 = (12.2965 * 1e7).toInt(),
-                            lonE7 = (76.6400 * 1e7).toInt(),
-                            tokens = DisasterPhraseCodebook.encodeTextToTokens(replyText, replyPhraseId)
-                        )
-                    )
-                }, 1200)
-            }
-        }, 320)
     }
 
     private fun observeServiceData() {
