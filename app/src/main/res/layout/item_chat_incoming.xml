@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:gravity="start"
+    android:paddingStart="8dp"
+    android:paddingEnd="48dp"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="@drawable/bg_card_hud"
+        android:backgroundTint="#1D1A2E"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="6dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="2dp">
+
+            <TextView
+                android:id="@+id/tvIncomingSender"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="USER 2 (RELAY PHONE)"
+                android:textColor="#FFD600"
+                android:textSize="9sp"
+                android:textStyle="bold"
+                android:fontFamily="monospace" />
+
+            <TextView
+                android:id="@+id/tvIncomingDistance"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:text="• In Zone"
+                android:textColor="#00E676"
+                android:textSize="9sp"
+                android:fontFamily="monospace" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvIncomingText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Rescue boat is dispatched, moving toward your coordinates!"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:id="@+id/tvSurvivorLocation"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="📍 280m away • North-East [12.2965°N, 76.6400°E]"
+            android:textColor="#00E5FF"
+            android:textSize="9sp"
+            android:fontFamily="monospace" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_gravity="end"
+            android:gravity="center_vertical"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/tvIncomingMeta"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="16:43 • Hop 1"
+                android:textColor="#8B949E"
+                android:textSize="9sp"
+                android:fontFamily="monospace" />
+
+            <Button
+                android:id="@+id/btnNavigateToSurvivor"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_badge"
+                android:text="🗺️ NAVIGATE"
+                android:textColor="#FFD600"
+                android:textSize="8sp"
+                android:fontFamily="monospace"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp" />
+
+            <Button
+                android:id="@+id/btnReplayAudio"
+                android:layout_width="wrap_content"
+                android:layout_height="24dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_badge"
+                android:text="🔊 SPEAK"
+                android:textColor="#00E5FF"
+                android:textSize="8sp"
+                android:fontFamily="monospace"
+                android:paddingStart="6dp"
+                android:paddingEnd="6dp" />
+        </LinearLayout>
+
+    </LinearLayout>
+</LinearLayout>

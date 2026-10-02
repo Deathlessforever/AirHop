@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.AirHop" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/accent_sos</item>
+        <item name="colorPrimaryVariant">@color/accent_sos_dark</item>
+        <item name="colorOnPrimary">@color/accent_text_primary</item>
+        <item name="colorSecondary">@color/accent_coded_phy</item>
+        <item name="colorSecondaryVariant">@color/accent_wifi_aware</item>
+        <item name="colorOnSecondary">@color/hud_background</item>
+        <item name="android:windowBackground">@color/hud_background</item>
+        <item name="android:statusBarColor">@color/hud_background</item>
+        <item name="android:navigationBarColor">@color/hud_background</item>
+    </style>
+</resources>

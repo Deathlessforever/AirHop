@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_card_hud"
+    android:layout_marginBottom="6dp"
+    android:padding="8dp">
+
+    <!-- Top Row: Time, MsgID, Action Badge, TTL -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/tvLogTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="12:00:00.000"
+            android:textColor="@color/accent_text_secondary"
+            android:textSize="11sp"
+            android:fontFamily="monospace" />
+
+        <TextView
+            android:id="@+id/tvLogMsgId"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:text="ID: 0x8F3A2190"
+            android:textColor="@color/accent_cyan"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+
+        <TextView
+            android:id="@+id/tvLogAction"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/bg_badge"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:text="RELAYED"
+            android:textColor="@color/accent_coded_phy"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:fontFamily="monospace" />
+
+        <TextView
+            android:id="@+id/tvLogTtl"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text="TTL: 9"
+            android:textColor="@color/accent_warning"
+            android:textSize="11sp"
+            android:fontFamily="monospace" />
+    </LinearLayout>
+
+    <!-- Coordinates, Geofence Distance & RS Parity Repair -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="4dp">
+
+        <TextView
+            android:id="@+id/tvLogLocation"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Loc: 12.2958° N, 76.6393° E"
+            android:textColor="@color/accent_text_secondary"
+            android:textSize="10sp"
+            android:fontFamily="monospace" />
+
+        <TextView
+            android:id="@+id/tvLogRsStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RS(40,32): OK"
+            android:textColor="@color/accent_coded_phy"
+            android:textSize="10sp"
+            android:fontFamily="monospace" />
+    </LinearLayout>
+
+    <!-- Decoded Token Summary / Spoken Disaster Message -->
+    <TextView
+        android:id="@+id/tvLogTokens"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="Voice Tokens: [01 14 09 ...] // ತುರ್ತು ಎಚ್ಚರಿಕೆ! ಪ್ರವಾಹ ಮಟ್ಟ ಏರುತ್ತಿದೆ"
+        android:textColor="@color/accent_text_primary"
+        android:textSize="11sp"
+        android:fontFamily="sans-serif-medium" />
+
+</LinearLayout>

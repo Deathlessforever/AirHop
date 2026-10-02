@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hud_background">#000000</color>
+    <color name="hud_surface">#0D1117</color>
+    <color name="hud_card">#161B22</color>
+    <color name="hud_border">#30363D</color>
+
+    <!-- Tactical Accents -->
+    <color name="accent_sos">#FF1744</color>
+    <color name="accent_sos_dark">#B71C1C</color>
+    <color name="accent_coded_phy">#00E676</color>
+    <color name="accent_wifi_aware">#00E5FF</color>
+    <color name="accent_warning">#FFD600</color>
+    <color name="accent_text_primary">#F0F6FC</color>
+    <color name="accent_text_secondary">#8B949E</color>
+    <color name="accent_cyan">#58A6FF</color>
+
+    <!-- Action Badges -->
+    <color name="badge_ingested">#1F6FEB</color>
+    <color name="badge_relayed">#238636</color>
+    <color name="badge_repaired">#D29922</color>
+    <color name="badge_alert">#DA3633</color>
+    <color name="badge_dropped">#6E7681</color>
+</resources>

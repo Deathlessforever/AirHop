@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AirHop / iTantra</string>
+    <string name="target_title">DISASTER TRANSCEIVER // ISRO SIH26173</string>
+    <string name="peers_title">ACTIVE MESH PEERS</string>
+    <string name="ble_coded_phy">BLE CODED (S=8)</string>
+    <string name="wifi_aware_title">WI-FI AWARE NAN</string>
+    <string name="navic_gps_title">NAVIC / GPS</string>
+    <string name="geofence_title">MYSURU FLOOD ZONE</string>
+    <string name="btn_sos">BROADCAST EMERGENCY SOS</string>
+    <string name="btn_ptt_record">PTT VOICE TRANSMIT</string>
+    <string name="btn_inject_test">INJECT TEST / RS REPAIR FRAME</string>
+    <string name="waterfall_title">WATERFALL TRANSMISSION LOG</string>
+</resources>
