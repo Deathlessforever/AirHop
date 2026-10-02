@@ -46,7 +46,7 @@ data class AirHopPacket(
     val flags: Byte,
     val ttl: Byte = ProtocolConstants.DEFAULT_TTL,
     val msgId: Int,
-    val targetZone: Int,
+    val targetZone: Int,\n    val destinationId: Int = targetZone,
     val latE7: Int,
     val lonE7: Int,
     val tokens: ByteArray,
