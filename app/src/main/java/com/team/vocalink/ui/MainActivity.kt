@@ -353,15 +353,28 @@ class MainActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle("📡 AirHop Mesh: Zero Contacts Needed")
             .setMessage(
-                "WHY ARE THERE NO PHONE CONTACTS?\n" +
-                "In severe disasters (floods, earthquakes, cyclones), cellular towers & internet grids completely fail. You cannot dial phone numbers or look up SIM contacts.\n\n" +
-                "HOW DOES SHARING WORK?\n" +
-                "Any nearby phone with AirHop installed automatically discovers other phones and acts as an autonomous relay node.\n\n" +
-                "HOW DOES THE PACKET HOP?\n" +
-                "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over supported offline transports and relay nodes; practical range depends on the phone hardware, environment, and transport availability.\n\n" +
-                "DELIVERY CONFIRMATION (✓✓):\n" +
-                "A receiving AirHop node can return an acknowledgment packet. The message is marked delivered only when a real acknowledgment matching the message ID reaches this device.\n\n" +
-                "ACTIVE AIRHOP RELAYS OBSERVED:\n" +
+                "WHY ARE THERE NO PHONE CONTACTS?
+" +
+                "In severe disasters (floods, earthquakes, cyclones), cellular towers & internet grids completely fail. You cannot dial phone numbers or look up SIM contacts.
+
+" +
+                "HOW DOES SHARING WORK?
+" +
+                "Any nearby phone with AirHop installed automatically discovers other phones and acts as an autonomous relay node.
+
+" +
+                "HOW DOES THE PACKET HOP?
+" +
+                "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over supported offline transports and relay nodes; practical range depends on the phone hardware, environment, and transport availability.
+
+" +
+                "DELIVERY CONFIRMATION (✓✓):
+" +
+                "A receiving AirHop node can return an acknowledgment packet. The message is marked delivered only when a real acknowledgment matching the message ID reaches this device.
+
+" +
+                "ACTIVE AIRHOP RELAYS OBSERVED:
+" +
                 "• Active nodes observed by this device: $activeCount"
             )
             .setPositiveButton("📡 PING ALL RELAYS") { _, _ ->
@@ -568,7 +581,8 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             perms.add(Manifest.permission.BLUETOOTH_SCAN)
             perms.add(Manifest.permission.BLUETOOTH_ADVERTISE)
-            perms.add(Manifest.permission.BLUETOOTH_CONNECT)\n            perms.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+            perms.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
