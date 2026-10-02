@@ -13,7 +13,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 
 /**
- * High-speed offline UDP broadcast mesh layer.
+ * Optional local-network UDP bearer. It only works when devices share an IP network; it is not a radio mesh.
  * Operates on port 40404 with broadcast enabled, allowing instantaneous sub-5ms
  * packet transmission whenever devices are in proximity or on local offline mesh/hotspot.
  */
