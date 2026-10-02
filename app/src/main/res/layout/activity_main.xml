@@ -4,14 +4,12 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@color/hud_background"
-    android:padding="12dp">
+    android:padding="16dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingBottom="8dp">
+        android:gravity="center_vertical">
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -22,19 +20,19 @@
                 android:layout_height="wrap_content"
                 android:text="AirHop"
                 android:textColor="@color/accent_text_primary"
-                android:textSize="24sp"
+                android:textSize="28sp"
                 android:textStyle="bold"/>
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Offline emergency communication"
+                android:text="Emergency communication • works without internet"
                 android:textColor="@color/accent_cyan"
-                android:textSize="11sp"/>
+                android:textSize="12sp"/>
         </LinearLayout>
         <Button
             android:id="@+id/btnSelectLanguage"
             android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_height="44dp"
             android:background="@drawable/bg_badge"
             android:text="English ▼"
             android:textColor="@color/accent_cyan"/>
@@ -43,126 +41,66 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:layout_marginBottom="8dp">
-        <TextView
-            android:id="@+id/tvBleStatus"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:gravity="center"
-            android:background="@drawable/bg_card_hud"
-            android:text="Bluetooth: checking"
-            android:textColor="@color/accent_coded_phy"
-            android:textSize="10sp"/>
-        <TextView
-            android:id="@+id/tvWifiAwareStatus"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:gravity="center"
-            android:background="@drawable/bg_card_hud"
-            android:text="Wi-Fi Aware: checking"
-            android:textColor="@color/accent_wifi_aware"
-            android:textSize="10sp"/>
-        <TextView
-            android:id="@+id/tvGpsStatus"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:layout_marginStart="4dp"
-            android:gravity="center"
-            android:background="@drawable/bg_card_hud"
-            android:text="Location: unavailable"
-            android:textColor="@color/accent_warning"
-            android:textSize="10sp"/>
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+        <TextView android:id="@+id/tvBleStatus" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:gravity="center" android:background="@drawable/bg_card_hud" android:text="Bluetooth: checking" android:textColor="@color/accent_coded_phy" android:textSize="10sp"/>
+        <TextView android:id="@+id/tvWifiAwareStatus" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:layout_marginStart="6dp" android:gravity="center" android:background="@drawable/bg_card_hud" android:text="Wi-Fi Aware: checking" android:textColor="@color/accent_wifi_aware" android:textSize="10sp"/>
+        <TextView android:id="@+id/tvGpsStatus" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:layout_marginStart="6dp" android:gravity="center" android:background="@drawable/bg_card_hud" android:text="Location: unavailable" android:textColor="@color/accent_warning" android:textSize="10sp"/>
     </LinearLayout>
+
+    <Button
+        android:id="@+id/btnSos"
+        android:layout_width="match_parent"
+        android:layout_height="58dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_sos_button"
+        android:text="SOS — SEND EMERGENCY ALERT"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold"/>
 
     <Button
         android:id="@+id/btnNearbyPeers"
         android:layout_width="match_parent"
-        android:layout_height="42dp"
-        android:layout_marginBottom="8dp"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
         android:background="@drawable/bg_card_hud"
-        android:text="📍 AirHop Map • waiting for nearby nodes"
-        android:textColor="@color/accent_coded_phy"/>
+        android:text="AirHop Map • nearby relay devices"
+        android:textColor="@color/accent_coded_phy"
+        android:textSize="13sp"/>
 
-    <LinearLayout
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
-        <Button
-            android:id="@+id/btnSos"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_sos_button"
-            android:text="SOS"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold"/>
-        <Button
-            android:id="@+id/btnTriageReport"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_badge"
-            android:text="Report"
-            android:textColor="@color/accent_cyan"/>
-        <Button
-            android:id="@+id/btnSurvivalGuide"
-            android:layout_width="0dp"
-            android:layout_height="48dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_badge"
-            android:text="First aid"
-            android:textColor="#00E676"/>
-    </LinearLayout>
+        android:layout_marginTop="10dp"
+        android:text="MESSAGES"
+        android:textColor="@color/accent_cyan"
+        android:textSize="11sp"
+        android:textStyle="bold"/>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvChatMessages"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layout_marginTop="4dp"
         android:background="@drawable/bg_card_hud"
-        android:padding="6dp"
+        android:padding="8dp"
         android:clipToPadding="false"
         android:scrollbars="vertical"/>
 
     <com.team.vocalink.ui.TokenVisualizerView
         android:id="@+id/tokenVisualizerView"
         android:layout_width="match_parent"
-        android:layout_height="28dp"
+        android:layout_height="24dp"
         android:layout_marginTop="6dp"
-        android:layout_marginBottom="6dp"
         android:background="@drawable/bg_card_hud"/>
-
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:scrollbars="none"
-        android:layout_marginBottom="6dp">
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            <Button android:id="@+id/chipPresetFlood" android:layout_width="wrap_content" android:layout_height="34dp" android:background="@drawable/bg_badge" android:text="Flood" android:textColor="@color/accent_sos"/>
-            <Button android:id="@+id/chipPresetMedical" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Medical" android:textColor="@color/accent_warning"/>
-            <Button android:id="@+id/chipPresetRubble" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Trapped" android:textColor="@color/accent_text_primary"/>
-            <Button android:id="@+id/chipPresetWater" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Water" android:textColor="@color/accent_cyan"/>
-            <Button android:id="@+id/chipPresetEvac" android:layout_width="wrap_content" android:layout_height="34dp" android:layout_marginStart="4dp" android:background="@drawable/bg_badge" android:text="Evacuate" android:textColor="@color/accent_coded_phy"/>
-        </LinearLayout>
-    </HorizontalScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical">
         <Button
             android:id="@+id/btnMicVoice"
             android:layout_width="52dp"
@@ -178,7 +116,7 @@
             android:layout_marginStart="6dp"
             android:layout_marginEnd="6dp"
             android:background="@drawable/bg_card_hud"
-            android:hint="Type a message"
+            android:hint="Type your emergency message"
             android:textColorHint="#6E7681"
             android:textColor="#FFFFFF"
             android:paddingStart="12dp"
@@ -186,43 +124,32 @@
             android:maxLines="2"/>
         <Button
             android:id="@+id/btnSendMessage"
-            android:layout_width="70dp"
+            android:layout_width="72dp"
             android:layout_height="48dp"
             android:background="@drawable/bg_badge"
             android:text="Send"
             android:textColor="@color/accent_cyan"/>
     </LinearLayout>
 
-    <LinearLayout
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:layout_marginTop="6dp">
-        <Button
-            android:id="@+id/btnBatteryMode"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_badge"
-            android:text="Battery"
-            android:textColor="#FFD600"/>
-        <Button
-            android:id="@+id/btnSecurity"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_badge"
-            android:text="Security"
-            android:textColor="@color/accent_coded_phy"/>
-        <Button
-            android:id="@+id/btnExportLogs"
-            android:layout_width="0dp"
-            android:layout_height="34dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_badge"
-            android:text="Export log"
-            android:textColor="@color/accent_cyan"/>
+        android:layout_marginTop="6dp"
+        android:scrollbars="none">
+        <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal">
+            <Button android:id="@+id/chipPresetFlood" android:layout_width="wrap_content" android:layout_height="36dp" android:background="@drawable/bg_badge" android:text="Flood" android:textColor="@color/accent_sos"/>
+            <Button android:id="@+id/chipPresetMedical" android:layout_width="wrap_content" android:layout_height="36dp" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="Medical" android:textColor="@color/accent_warning"/>
+            <Button android:id="@+id/chipPresetRubble" android:layout_width="wrap_content" android:layout_height="36dp" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="Trapped" android:textColor="@color/accent_text_primary"/>
+            <Button android:id="@+id/chipPresetWater" android:layout_width="wrap_content" android:layout_height="36dp" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="Water" android:textColor="@color/accent_cyan"/>
+            <Button android:id="@+id/chipPresetEvac" android:layout_width="wrap_content" android:layout_height="36dp" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="Evacuate" android:textColor="@color/accent_coded_phy"/>
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp">
+        <Button android:id="@+id/btnTriageReport" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:background="@drawable/bg_badge" android:text="Report" android:textColor="@color/accent_cyan"/>
+        <Button android:id="@+id/btnSurvivalGuide" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="First aid" android:textColor="#00E676"/>
+        <Button android:id="@+id/btnBatteryMode" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="Battery" android:textColor="#FFD600"/>
+        <Button android:id="@+id/btnSecurity" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="Security" android:textColor="@color/accent_coded_phy"/>
+        <Button android:id="@+id/btnExportLogs" android:layout_width="0dp" android:layout_height="38dp" android:layout_weight="1" android:layout_marginStart="5dp" android:background="@drawable/bg_badge" android:text="Logs" android:textColor="@color/accent_cyan"/>
     </LinearLayout>
 </LinearLayout>
