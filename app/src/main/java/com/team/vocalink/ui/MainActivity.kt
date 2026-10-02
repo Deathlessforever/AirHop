@@ -262,7 +262,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun toggleSosSirenAndStrobe() {
-        val service = meshService ?: return
+        val service = meshService ?: run {
+            Toast.makeText(this, "Mesh service is still starting. Try SOS again in a moment.", Toast.LENGTH_SHORT).show()
+            return
+        }
         isSosSirenActive = !isSosSirenActive
 
         if (isSosSirenActive) {
@@ -270,10 +273,14 @@ class MainActivity : AppCompatActivity() {
             btnSos.setBackgroundColor(android.graphics.Color.parseColor("#D50000"))
 
             // 1. Play continuous tactical emergency siren
-            service.dndAlertManager.triggerSosAlarm(loopContinuous = true)
+            try { service.dndAlertManager.triggerSosAlarm(loopContinuous = true) } catch (e: Exception) {
+                android.util.Log.e("AirHopSOS", "Local alarm unavailable", e)
+            }
 
             // 2. Start optical SOS Morse strobe on camera LED
-            flashlightStrobeManager.startSosStrobe()
+            try { flashlightStrobeManager.startSosStrobe() } catch (e: Exception) {
+                android.util.Log.e("AirHopSOS", "Flash strobe unavailable", e)
+            }
 
             // 3. Broadcast high-priority SOS emergency packet
             val sosMsg = "🚨 EMERGENCY SOS BROADCAST: IMMEDIATE LIFE DANGER!"
