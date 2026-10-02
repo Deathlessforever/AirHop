@@ -442,6 +442,18 @@ class MainActivity : AppCompatActivity() {
 
         // 3. Observe Peer Counts and update the Zero-Contact banner
         lifecycleScope.launch {
+            service.bleMeshEngine.isCodedPhySupported.collectLatest { supported ->
+                tvBleStatus.text = if (supported) "Bluetooth: extended + coded" else "Bluetooth: extended unavailable"
+            }
+        }
+
+        lifecycleScope.launch {
+            service.wifiAwareEngine.isAwareAvailable.collectLatest { available ->
+                tvWifiAwareStatus.text = if (available) "Wi-Fi Aware: available" else "Wi-Fi Aware: unavailable"
+            }
+        }
+
+        lifecycleScope.launch {
             service.bleMeshEngine.activePeerCount.collectLatest { count ->
                 btnNearbyPeers.text = if (count == 0) {
                     "No nearby AirHop nodes observed"
