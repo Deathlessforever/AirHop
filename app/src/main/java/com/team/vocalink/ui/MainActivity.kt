@@ -27,6 +27,7 @@ import com.team.vocalink.core.ChatMessage
 import com.team.vocalink.core.DisasterPhraseCodebook
 import com.team.vocalink.core.MessageStatus
 import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.security.AirHopPacketAuthenticator
 import android.net.Uri
 import com.team.vocalink.alert.EmergencySurvivalGuide
 import com.team.vocalink.alert.FlashlightStrobeManager
@@ -77,6 +78,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etMessageInput: EditText
     private lateinit var btnSendMessage: Button
     private lateinit var btnExportLogs: Button
+    private lateinit var btnSecurity: Button
 
     // Quick Disaster Chips
     private lateinit var chipPresetFlood: Button
@@ -151,6 +153,7 @@ class MainActivity : AppCompatActivity() {
         etMessageInput = findViewById(R.id.etMessageInput)
         btnSendMessage = findViewById(R.id.btnSendMessage)
         btnExportLogs = findViewById(R.id.btnExportLogs)
+        btnSecurity = findViewById(R.id.btnSecurity)
 
         chipPresetFlood = findViewById(R.id.chipPresetFlood)
         chipPresetMedical = findViewById(R.id.chipPresetMedical)
@@ -250,6 +253,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Export Logs as CSV
+        btnSecurity.setOnClickListener { showSecurityDialog() }
+
         btnExportLogs.setOnClickListener {
             exportTriageLogs()
         }
@@ -417,6 +422,36 @@ class MainActivity : AppCompatActivity() {
 
         tokenVisualizerView.updateAudioRms(0.75f, com.team.vocalink.core.VadState.ACTIVE)
         window.decorView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+    }
+
+    private fun showSecurityDialog() {
+        val auth = AirHopPacketAuthenticator(this)
+        val currentKey = auth.exportKey()
+        val input = EditText(this).apply {
+            setText(currentKey)
+            hint = "256-bit shared AirHop key"
+            setSingleLine(true)
+            setSelectAllOnFocus(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Secure AirHop mesh")
+            .setMessage("Use the same 256-bit group key on every phone that should participate in the same private mesh.")
+            .setView(input)
+            .setPositiveButton("Save key") { _, _ ->
+                try {
+                    auth.importKey(input.text.toString())
+                    Toast.makeText(this, "Mesh security key saved.", Toast.LENGTH_SHORT).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Invalid key. Use the generated 256-bit value.", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNeutralButton("Copy key") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AirHop key", currentKey))
+                Toast.makeText(this, "Key copied. Share it only with trusted devices.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun observeServiceData() {
