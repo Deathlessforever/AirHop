@@ -40,7 +40,7 @@ class UdpMeshSocket(
                     bind(InetSocketAddress(MESH_PORT))
                 }
                 socket = sock
-                Log.i(TAG, "UDP Mesh socket bound to port  with broadcast enabled")
+                Log.i(TAG, "UDP bearer bound to port $MESH_PORT on the local IP network")
 
                 val buffer = ByteArray(256)
                 while (isActive && isRunning) {
@@ -61,7 +61,7 @@ class UdpMeshSocket(
         if (bytes.size != ProtocolConstants.PACKET_SIZE) return
         scope.launch {
             try {
-                val sock = socket ?: DatagramSocket().apply { broadcast = true }
+                val sock = socket ?: return@launch
                 val broadcastAddr = InetAddress.getByName("255.255.255.255")
                 val packet = DatagramPacket(bytes, bytes.size, broadcastAddr, MESH_PORT)
                 sock.send(packet)
