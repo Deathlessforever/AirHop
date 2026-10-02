@@ -102,3 +102,8 @@ Output APK location:
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+
+## Production validation
+
+The production branch requires Android build/test CI plus a real-device BLE/Wi-Fi Aware matrix before claiming radio interoperability.
