@@ -438,8 +438,8 @@ class MainActivity : AppCompatActivity() {
             phraseId = phraseId,
             isSos = isSos,
             lang = selectedLanguage.langByte,
-            lat = lat ?: Double.NaN,
-            lon = lon ?: Double.NaN
+            lat = lat ?: 0.0,
+            lon = lon ?: 0.0
         )
 
         tokenVisualizerView.updateAudioRms(0.75f, com.team.vocalink.core.VadState.ACTIVE)
