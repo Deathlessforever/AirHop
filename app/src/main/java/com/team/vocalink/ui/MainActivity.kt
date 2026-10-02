@@ -192,7 +192,7 @@ class MainActivity : AppCompatActivity() {
 
         // Nearby Relays & Zero-Contact Explanation Dialog
         btnNearbyPeers.setOnClickListener {
-            showRelayExplanationDialog()
+            startActivity(Intent(this, AirHopMapActivity::class.java))
         }
 
         // Emergency SOS Siren & Optical Strobe Beacon Toggle
