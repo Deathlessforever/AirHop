@@ -35,7 +35,7 @@ class BlindRelayManager(
     }
 
     private val relayScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private val bloomFilter = RotatingBloomFilter()
+    private val bloomFilter = RotatingBloomFilter()\n    private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
 
     private val _waterfallEvents = MutableSharedFlow<WaterfallLogItem>(replay = 50)
     val waterfallEvents: SharedFlow<WaterfallLogItem> = _waterfallEvents.asSharedFlow()
@@ -113,7 +113,7 @@ class BlindRelayManager(
 
         // 4. Alert & SOS Handling
         val isEmergencySos = decodeResult.isEmergencySos
-        if (isEmergencySos && inGeofence) {
+        if (isLocalDestination && isEmergencySos && inGeofence) {
             relayAction = PacketAction.ALERT_TRIGGERED
             Log.w(TAG, "EMERGENCY SOS TARGETING CURRENT GEOFENCE! Triggering DND Bypass")
             dndBypassAlertManager.triggerSosAlarm(
@@ -124,7 +124,7 @@ class BlindRelayManager(
         }
 
         // 5. Neural Indic Voice Synthesis hook
-        if (tokens.any { it != 0.toByte() }) {
+        if (isLocalDestination && tokens.any { it != 0.toByte() }) {
             neuralTtsHook.synthesizeAndPlayTokens(
                 tokens = tokens,
                 languageId = (flags and ProtocolConstants.FLAG_LANG_MASK.toInt()).toByte()
