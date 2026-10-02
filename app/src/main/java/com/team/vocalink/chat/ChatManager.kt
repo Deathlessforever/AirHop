@@ -38,7 +38,8 @@ class ChatManager(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val prefs = context.getSharedPreferences("airhop_messages", Context.MODE_PRIVATE)
     private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
-    private val storageKey = "messages_v1"\n    private val outboxKey = "outbox_v1"
+    private val storageKey = "messages_v1"
+    private val outboxKey = "outbox_v1"
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(loadMessages())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
@@ -47,7 +48,8 @@ class ChatManager(
     private val _deliveryEvent = MutableSharedFlow<Int>()
     val deliveryEvent: SharedFlow<Int> = _deliveryEvent.asSharedFlow()
 
-    init {\n        val raw = prefs.getString(outboxKey, null)\n        val array = raw?.let { runCatching { JSONArray(it) }.getOrNull() }\n        if (array != null) for (i in 0 until array.length()) retryOutbox(array.getJSONObject(i).optInt("id"))\n    }
+    init {
+        val raw = prefs.getString(outboxKey, null)\n        val array = raw?.let { runCatching { JSONArray(it) }.getOrNull() }\n        if (array != null) for (i in 0 until array.length()) retryOutbox(array.getJSONObject(i).optInt("id"))\n    }
 
     fun sendMessage(
         text: String,
@@ -126,7 +128,7 @@ class ChatManager(
                     _messages.value = current
                     persistMessages()
                     _deliveryEvent.emit(acknowledgedMsgId)
-                    Log.i(TAG, "BLUE TICK CONFIRMED for message ! Latency: ms")
+                    Log.i(TAG, "BLUE TICK CONFIRMED for message $acknowledgedMsgId! Latency: $latency ms")
                 }
             }
             return
@@ -158,7 +160,7 @@ class ChatManager(
 
             _messages.value = _messages.value + incoming
             persistMessages()
-            Log.i(TAG, "Received message from peer: ''")
+            Log.i(TAG, "Received message from peer: $msgId")
 
             // Speak aloud automatically on User 2's phone!
             offlineTtsEngine.speak(text, lang)
@@ -199,9 +201,18 @@ class ChatManager(
                         bleMeshEngine.broadcastPacket(packet)
                     }
                 }
-                if (!prefs.getString(outboxKey, null).orEmpty().contains(""id":$msgId")) return@launch
+                if (!isOutboxPending(msgId)) return@launch
             }
         }
+    }
+
+    private fun isOutboxPending(msgId: Int): Boolean {
+        val raw = prefs.getString(outboxKey, null) ?: return false
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return false
+        for (i in 0 until array.length()) {
+            if (array.getJSONObject(i).optInt("id") == msgId) return true
+        }
+        return false
     }
 
     private fun currentMessageState(id: Int, status: MessageStatus) {
