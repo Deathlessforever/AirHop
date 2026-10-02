@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Blind Relay Engine: Dedicated background engine that intercepts packets from BLE Coded PHY,
@@ -37,6 +38,10 @@ class BlindRelayManager(
 
     private val relayScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val bloomFilter = RotatingBloomFilter()
+    // Exact recent-ID cache prevents Bloom-filter false positives from dropping
+    // legitimate packets. The Bloom filter remains the fast first-stage check.
+    private val recentMessageIds = ConcurrentHashMap<Int, Long>()
+    private val recentIdTtlMs = 10 * 60 * 1000L
     private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
 
     private val _waterfallEvents = MutableSharedFlow<WaterfallLogItem>(replay = 50)
@@ -46,7 +51,26 @@ class BlindRelayManager(
     var onPacketDecoded: ((PacketRepairResult) -> Unit)? = null
 
     fun registerSentMessageId(msgId: Int) {
+        rememberMessageId(msgId)
+    }
+
+    private fun rememberMessageId(msgId: Int) {
+        val now = System.currentTimeMillis()
+        recentMessageIds[msgId] = now
+        // Keep this bounded even if the mesh is continuously active.
+        if (recentMessageIds.size > 4096) {
+            recentMessageIds.entries
+                .sortedBy { it.value }
+                .take(recentMessageIds.size - 3072)
+                .forEach { recentMessageIds.remove(it.key, it.value) }
+        }
         bloomFilter.add(msgId)
+    }
+
+    fun close() {
+        relayScope.coroutineContext.cancel()
+        recentMessageIds.clear()
+        onPacketDecoded = null
     }
 
     /**
@@ -76,7 +100,13 @@ class BlindRelayManager(
 
         // Duplicate suppression is performed after FEC repair so corrupted msg_id bytes
         // cannot poison the deduplication table with a false identity.
-        if (bloomFilter.checkAndAdd(msgId)) return
+        val now = System.currentTimeMillis()
+        recentMessageIds.entries.removeIf { now - it.value > recentIdTtlMs }
+        if (recentMessageIds.containsKey(msgId)) return
+        // Bloom false positives must never be authoritative; record the ID in the
+        // exact cache and use the Bloom filter only as an acceleration structure.
+        bloomFilter.checkAndAdd(msgId)
+        recentMessageIds[msgId] = now
         val flags = decodeResult.flags
         val ttl = decodeResult.ttl
         val latE7 = decodeResult.latE7
