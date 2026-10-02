@@ -146,8 +146,8 @@ data class ChatMessage(
     val senderName: String,
     val isFromMe: Boolean,
     val timestamp: Long = System.currentTimeMillis(),
-    val lat: Double = ProtocolConstants.BENCHMARK_MYSURU_LAT,
-    val lon: Double = ProtocolConstants.BENCHMARK_MYSURU_LON,
+    val lat: Double = 0.0,
+    val lon: Double = 0.0,
     val hopCount: Int = 1,
     var status: MessageStatus = MessageStatus.SENT,
     val latencyMs: Long? = null
