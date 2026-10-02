@@ -108,7 +108,6 @@ class AirHopMeshService : Service() {
         // Construct the relay dispatcher before radio callbacks can fire.
         // A radio callback may arrive immediately after start(), so capturing
         // an uninitialized lateinit property here is unsafe.
-        lateinit var relay: BlindRelayManager
         bleMeshEngine = BleMeshEngine(this) { rawPacket, rssi ->
             if (::blindRelayManager.isInitialized) blindRelayManager.onRawPacketScanned(rawPacket, rssi)
         }
