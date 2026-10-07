@@ -99,24 +99,31 @@ class MainActivity : AppCompatActivity() {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as? AirHopMeshService.LocalBinder ?: run { Toast.makeText(this@MainActivity, "Invalid mesh service connection", Toast.LENGTH_LONG).show(); return }
-            meshService = binder.getService()
-            isBound = true
-            if (!serviceObserversStarted) {
-                serviceObserversStarted = true
-                observeServiceData()
+            safeAction {
+                val binder = service as? AirHopMeshService.LocalBinder ?: run {
+                    Toast.makeText(this@MainActivity, "Invalid mesh service connection", Toast.LENGTH_LONG).show()
+                    return@safeAction
+                }
+                meshService = binder.getService()
+                isBound = true
+                if (!serviceObserversStarted) {
+                    serviceObserversStarted = true
+                    observeServiceData()
+                }
             }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            serviceObserverJobs.forEach { it.cancel() }
-            serviceObserverJobs.clear()
-            meshService = null
-            isBound = false
-            serviceObserversStarted = false
-            Toast.makeText(this@MainActivity, "AirHop mesh disconnected. Reconnecting…", Toast.LENGTH_SHORT).show()
-            if (!isFinishing && !isDestroyed) {
-                window.decorView.postDelayed({ startAndBindMeshService() }, 500L)
+            safeAction {
+                serviceObserverJobs.forEach { it.cancel() }
+                serviceObserverJobs.clear()
+                meshService = null
+                isBound = false
+                serviceObserversStarted = false
+                Toast.makeText(this@MainActivity, "AirHop mesh disconnected. Reconnecting…", Toast.LENGTH_SHORT).show()
+                if (!isFinishing && !isDestroyed) {
+                    window.decorView.postDelayed({ startAndBindMeshService() }, 500L)
+                }
             }
         }
     }
@@ -124,12 +131,14 @@ class MainActivity : AppCompatActivity() {
     private val speechLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val spokenText = spoken?.firstOrNull()
-            if (!spokenText.isNullOrBlank()) {
-                etMessageInput.setText(spokenText)
-                sendEmergencyMessage(spokenText)
+        safeAction {
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                val spokenText = spoken?.firstOrNull()
+                if (!spokenText.isNullOrBlank()) {
+                    etMessageInput.setText(spokenText)
+                    sendEmergencyMessage(spokenText)
+                }
             }
         }
     }
@@ -137,24 +146,28 @@ class MainActivity : AppCompatActivity() {
     private val micPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) launchVoiceRecognizer()
-        else Toast.makeText(this, "Microphone permission denied. Typed messages still work.", Toast.LENGTH_SHORT).show()
+        safeAction {
+            if (granted) launchVoiceRecognizer()
+            else Toast.makeText(this, "Microphone permission denied. Typed messages still work.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private val cameraPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            toggleSosSirenAndStrobe()
-        } else {
-            val service = meshService
-            if (service != null) {
-                isSosSirenActive = true
-                try { service.dndAlertManager.triggerSosAlarm(loopContinuous = true) } catch (_: Exception) {}
-                sendEmergencyMessage("EMERGENCY SOS BROADCAST: IMMEDIATE LIFE DANGER!", isSos = true, phraseIdOverride = 1)
-                Toast.makeText(this, "SOS mesh broadcast sent. Flashlight disabled.", Toast.LENGTH_LONG).show()
+        safeAction {
+            if (granted) {
+                toggleSosSirenAndStrobe()
             } else {
-                Toast.makeText(this, "SOS mesh is not ready yet.", Toast.LENGTH_LONG).show()
+                val service = meshService
+                if (service != null) {
+                    isSosSirenActive = true
+                    try { service.dndAlertManager.triggerSosAlarm(loopContinuous = true) } catch (_: Exception) {}
+                    sendEmergencyMessage("EMERGENCY SOS BROADCAST: IMMEDIATE LIFE DANGER!", isSos = true, phraseIdOverride = 1)
+                    Toast.makeText(this, "SOS mesh broadcast sent. Flashlight disabled.", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "SOS mesh is not ready yet.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -162,21 +175,23 @@ class MainActivity : AppCompatActivity() {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
-        val required = result.keys.filter { it != Manifest.permission.POST_NOTIFICATIONS }
-        val deniedRequired = required.filter {
-            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
-        }
-        // Never make the whole application unusable because an optional
-        // transport or notification permission was denied. Start the service
-        // and let each transport report its own capability.
-        startAndBindMeshService()
+        safeAction {
+            val required = result.keys.filter { it != Manifest.permission.POST_NOTIFICATIONS }
+            val deniedRequired = required.filter {
+                checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            // Never make the whole application unusable because an optional
+            // transport or notification permission was denied. Start the service
+            // and let each transport report its own capability.
+            startAndBindMeshService()
 
-        if (deniedRequired.isNotEmpty()) {
-            Toast.makeText(
-                this,
-                "Some nearby-device permissions were denied. AirHop will use every supported transport that remains available.",
-                Toast.LENGTH_LONG
-            ).show()
+            if (deniedRequired.isNotEmpty()) {
+                Toast.makeText(
+                    this,
+                    "Some nearby-device permissions were denied. AirHop will use every supported transport that remains available.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 
