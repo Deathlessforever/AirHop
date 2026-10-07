@@ -1,7 +1,7 @@
 # AirHop / iTantra
-### Offline Neural Voice Transceiver for Disaster Communication (ISRO SIH26173 Target)
+### Disaster Communication Prototype (ISRO SIH26173 Target)
 
-AirHop / iTantra is an offline, multi-hop disaster communications system designed for extreme infrastructure failure scenarios (floods, earthquakes, landslides). It provides long-range neural voice transmission and geofenced SOS beaconing without cellular connectivity, satellite internet, or base stations.
+AirHop / iTantra is a disaster communications prototype for floods, earthquakes, landslides, and other infrastructure failures. Radio interoperability and offline speech recognition still require real-device validation; the app does not bundle speech models.
 
 ---
 
