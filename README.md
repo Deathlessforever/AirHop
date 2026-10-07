@@ -65,6 +65,10 @@ AirHop / iTantra is an offline, multi-hop disaster communications system designe
 
 ---
 
+### Voice input limitations
+
+On Android 12 and newer, the microphone uses Android's on-device speech recognizer when the phone provides one. The selected language's offline model must also be installed. AirHop does not bundle a speech model, so offline speech recognition is not guaranteed until verified on the target phone with network access disabled. Android 11 and older use the system recognizer with offline preference, which the recognizer may ignore. The SOS preset buttons remain available when speech recognition is unavailable.
+
 ### 4. Module 4: UI & Operations (`com.team.vocalink.ui`)
 * **Tactical Dark Mode HUD (`MainActivity`)**:
   - OLED black (`#000000`) high-contrast theme.
