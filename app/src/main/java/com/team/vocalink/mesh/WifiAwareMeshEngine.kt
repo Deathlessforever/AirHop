@@ -102,10 +102,19 @@ class WifiAwareMeshEngine(
     }
 
     private fun refresh() {
-        _available.value =
+        _available.value = try {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE) &&
-            manager?.isAvailable == true
+                context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE) &&
+                manager?.isAvailable == true
+        } catch (e: SecurityException) {
+            // Nearby Wi-Fi permission is optional. Keep the BLE/UDP transports
+            // alive when Wi-Fi Aware is unavailable or permission is denied.
+            Log.w(TAG, "Wi-Fi Aware capability query denied; transport disabled", e)
+            false
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Wi-Fi Aware capability query failed; transport disabled", e)
+            false
+        }
     }
 
     private fun remember(peer: PeerHandle) {
