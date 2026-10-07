@@ -26,7 +26,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.team.vocalink.R
 import com.team.vocalink.core.ChatMessage
-import com.team.vocalink.core.AirHopTextFragments
 import com.team.vocalink.core.DisasterPhraseCodebook
 import com.team.vocalink.core.MessageStatus
 import com.team.vocalink.core.ProtocolConstants
@@ -630,7 +629,7 @@ class MainActivity : AppCompatActivity() {
         if (!queued) {
             Toast.makeText(
                 this,
-                "Message is too long for AirHop. Keep it under ${AirHopTextFragments.MAX_TEXT_BYTES} UTF-8 bytes.",
+                "Message is too long to send over AirHop. Shorten it and try again.",
                 Toast.LENGTH_LONG
             ).show()
             return
