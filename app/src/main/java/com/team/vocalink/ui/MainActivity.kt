@@ -36,6 +36,7 @@ import com.team.vocalink.alert.SituationalTriageDialog
 import com.team.vocalink.service.AirHopMeshService
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -94,6 +95,7 @@ class MainActivity : AppCompatActivity() {
     private var meshService: AirHopMeshService? = null
     private var isBound = false
     private var serviceObserversStarted = false
+    private val serviceObserverJobs = mutableListOf<Job>()
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -107,6 +109,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
+            serviceObserverJobs.forEach { it.cancel() }
+            serviceObserverJobs.clear()
             meshService = null
             isBound = false
             serviceObserversStarted = false
@@ -504,9 +508,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun observeServiceData() {
         val service = meshService ?: return
+        serviceObserverJobs.forEach { it.cancel() }
+        serviceObserverJobs.clear()
 
         // 1. Observe Chat Messages with auto-scroll
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.chatManager.messages.collectLatest { list ->
                 chatAdapter.submitList(list) {
                     if (list.isNotEmpty()) {
@@ -517,26 +523,26 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 2. Observe Delivery ACK events for Blue Tick haptics
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.chatManager.deliveryEvent.collectLatest { _ ->
                 window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             }
         }
 
         // 3. Observe Peer Counts and update the Zero-Contact banner
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.bleMeshEngine.isCodedPhySupported.collectLatest { supported ->
                 tvBleStatus.text = if (supported) "Bluetooth: extended + coded" else "Bluetooth: extended unavailable"
             }
         }
 
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.wifiAwareEngine.isAwareAvailable.collectLatest { available ->
                 tvWifiAwareStatus.text = if (available) "Wi-Fi Aware: available" else "Wi-Fi Aware: unavailable"
             }
         }
 
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.bleMeshEngine.activePeerCount.collectLatest { count ->
                 btnNearbyPeers.text = if (count == 0) {
                     "No nearby AirHop nodes observed"
@@ -547,14 +553,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 4. Observe Audio RMS Waveform
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.audioIngestEngine.currentRms.collectLatest { rms ->
                 tokenVisualizerView.updateAudioRms(rms, service.audioIngestEngine.vadState.value)
             }
         }
 
         // 5. Observe GPS/NavIC
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.geofenceManager.currentLocation.collectLatest { loc ->
                 if (loc != null) {
                     tvGpsStatus.text = "NAVIC: %.4f°N".format(loc.latitude)
