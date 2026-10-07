@@ -568,15 +568,16 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-    private fun releaseLocalSpeechRecognizer() {
+    private fun releaseLocalSpeechRecognizer(cancelListening: Boolean = false) {
         isListeningForVoiceMessage = false
+        val recognizer = localSpeechRecognizer
+        localSpeechRecognizer = null
         try {
-            localSpeechRecognizer?.cancel()
-            localSpeechRecognizer?.destroy()
+            if (cancelListening) recognizer?.cancel()
+            recognizer?.destroy()
         } catch (e: Exception) {
             android.util.Log.w("AirHopSpeech", "Error closing local speech recognizer", e)
         } finally {
-            localSpeechRecognizer = null
             if (::btnMicVoice.isInitialized) btnMicVoice.text = "🎙"
         }
     }
@@ -850,7 +851,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        releaseLocalSpeechRecognizer()
+        releaseLocalSpeechRecognizer(cancelListening = true)
         super.onDestroy()
         try {
             flashlightStrobeManager.stopSosStrobe()
