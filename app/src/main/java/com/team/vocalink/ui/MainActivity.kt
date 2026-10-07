@@ -95,6 +95,8 @@ class MainActivity : AppCompatActivity() {
     private var meshService: AirHopMeshService? = null
     private var isBound = false
     private var serviceObserversStarted = false
+    private var localSpeechRecognizer: SpeechRecognizer? = null
+    private var isListeningForVoiceMessage = false
     private val serviceObserverJobs = mutableListOf<Job>()
 
     private val serviceConnection = object : ServiceConnection {
@@ -452,33 +454,145 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launchVoiceRecognizer() {
-        try {
-            // Android 12+ exposes an explicit on-device recognizer capability check.
-            // Do not silently fall back to a network recognizer: AirHop's voice path
-            // must remain honest about its offline capability.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
-            ) {
-                Toast.makeText(
-                    this,
-                    "Offline voice recognition is not installed for this device. Type the message or install an offline language pack.",
-                    Toast.LENGTH_LONG
-                ).show()
-                return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            // Android versions before 12 do not expose a strict on-device recognizer API.
+            // Keep their system voice UI, but prefer offline recognition where supported.
+            try {
+                speechLauncher.launch(createVoiceRecognitionIntent())
+            } catch (e: Exception) {
+                android.util.Log.e("AirHopSpeech", "Could not open system speech recognition", e)
+                Toast.makeText(this, "Voice recognition is unavailable. Use an SOS preset or type a message.", Toast.LENGTH_LONG).show()
             }
-
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage.localeTag)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, selectedLanguage.localeTag)
-                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf(selectedLanguage.localeTag, "en-US"))
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak in ${selectedLanguage.nativeName} (${selectedLanguage.name})...")
-            }
-            speechLauncher.launch(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Offline voice recognizer not available. Please type the message.", Toast.LENGTH_SHORT).show()
+            return
         }
+
+        if (isListeningForVoiceMessage) {
+            btnMicVoice.text = "Processing…"
+            localSpeechRecognizer?.stopListening()
+            return
+        }
+
+        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            Toast.makeText(
+                this,
+                "This phone has no on-device speech recognizer available. Install an offline voice model for ${selectedLanguage.name}, or use an SOS preset.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        try {
+            val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            localSpeechRecognizer = recognizer
+            recognizer.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    safeAction {
+                        isListeningForVoiceMessage = true
+                        btnMicVoice.text = "Stop"
+                        Toast.makeText(this@MainActivity, "Listening offline… tap mic when finished.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+
+                override fun onEndOfSpeech() {
+                    safeAction { btnMicVoice.text = "Processing…" }
+                }
+
+                override fun onError(error: Int) {
+                    safeAction {
+                        releaseLocalSpeechRecognizer()
+                        Toast.makeText(this@MainActivity, speechRecognitionErrorMessage(error), Toast.LENGTH_LONG).show()
+                    }
+                }
+
+                override fun onResults(results: Bundle?) {
+                    safeAction {
+                        val recognizedText = results
+                            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.firstOrNull()
+                            ?.trim()
+                        releaseLocalSpeechRecognizer()
+                        if (recognizedText.isNullOrBlank()) {
+                            Toast.makeText(this@MainActivity, "No words were recognized. Tap the mic and try again.", Toast.LENGTH_LONG).show()
+                        } else {
+                            etMessageInput.setText(recognizedText)
+                            sendEmergencyMessage(recognizedText)
+                        }
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    safeAction {
+                        val partial = partialResults
+                            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.firstOrNull()
+                        if (!partial.isNullOrBlank()) etMessageInput.setText(partial)
+                    }
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            })
+
+            isListeningForVoiceMessage = true
+            btnMicVoice.text = "Listening…"
+            recognizer.startListening(createVoiceRecognitionIntent())
+        } catch (e: Exception) {
+            releaseLocalSpeechRecognizer()
+            android.util.Log.e("AirHopSpeech", "Could not start on-device speech recognition", e)
+            Toast.makeText(this, "Could not start offline voice recognition. Use an SOS preset or type a message.", Toast.LENGTH_LONG).show()
+        } catch (e: LinkageError) {
+            releaseLocalSpeechRecognizer()
+            android.util.Log.e("AirHopSpeech", "On-device speech recognition is unavailable", e)
+            Toast.makeText(this, "This phone's offline voice service is unavailable. Use an SOS preset.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun createVoiceRecognitionIntent(): Intent =
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage.localeTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, selectedLanguage.localeTag)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(
+                "android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES",
+                arrayOf(selectedLanguage.localeTag, "en-US")
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_PROMPT,
+                "Speak in ${selectedLanguage.nativeName} (${selectedLanguage.name})…"
+            )
+        }
+
+    private fun releaseLocalSpeechRecognizer() {
+        isListeningForVoiceMessage = false
+        try {
+            localSpeechRecognizer?.cancel()
+            localSpeechRecognizer?.destroy()
+        } catch (e: Exception) {
+            android.util.Log.w("AirHopSpeech", "Error closing local speech recognizer", e)
+        } finally {
+            localSpeechRecognizer = null
+            if (::btnMicVoice.isInitialized) btnMicVoice.text = "🎙"
+        }
+    }
+
+    private fun speechRecognitionErrorMessage(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_AUDIO -> "The microphone could not start. Check microphone permission and the phone's mic privacy switch."
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Allow microphone access for AirHop, then try again."
+        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
+            "The on-device recognizer could not complete speech recognition. Check that an offline model is installed for ${selectedLanguage.name}."
+        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+            "No speech was recognized. Tap the mic and try again."
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
+            "The voice recognizer is busy. Wait a moment and try again."
+        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+            "This phone has no offline speech model for ${selectedLanguage.name}. Use an SOS preset or choose a language with an installed offline model."
+        else -> "Offline speech recognition failed (error $error). Use an SOS preset or try again."
     }
 
     private fun sendEmergencyMessage(text: String, isSos: Boolean = false, phraseIdOverride: Int? = null) {
@@ -736,6 +850,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        releaseLocalSpeechRecognizer()
         super.onDestroy()
         try {
             flashlightStrobeManager.stopSosStrobe()
