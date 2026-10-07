@@ -94,12 +94,12 @@ class AirHopMeshService : Service() {
 
         createNotificationChannel()
 
+        try {
         // Enter the foreground before initializing the radio stack.
         // This avoids long engine initialization consuming the Android
         // foreground-service startup window.
         startForegroundServiceNotification()
 
-        try {
         // Initialize Core Engines
         geofenceManager = GeofenceManager(this)
         nodePresenceDirectory = com.team.vocalink.mesh.NodePresenceDirectory(this)
@@ -233,13 +233,16 @@ class AirHopMeshService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // remoteMessaging was introduced in API 34 and is required for
+            // target-34+ foreground services of this type.
             startForeground(
                 NOTIFICATION_ID,
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
             )
         } else {
+            // Do not pass the API-34 remoteMessaging bit to older Android.
             startForeground(NOTIFICATION_ID, notification)
         }
     }
