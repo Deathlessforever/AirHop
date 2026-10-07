@@ -173,6 +173,12 @@ class AirHopMeshService : Service() {
             Log.e(TAG, "Mesh initialization failed", e)
             instance = null
             stopSelf()
+        } catch (e: LinkageError) {
+            // Vendor/API-specific linkage failures must not take down the app
+            // process when an optional platform transport is unavailable.
+            Log.e(TAG, "Optional mesh component could not be linked", e)
+            instance = null
+            stopSelf()
         }
     }
 
