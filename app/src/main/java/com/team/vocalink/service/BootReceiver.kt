@@ -7,8 +7,8 @@ import android.os.Build
 import android.util.Log
 
 /**
- * Boot Receiver: Automatically relaunches the AirHop disaster mesh service
- * upon device restart in an active crisis area without requiring user intervention.
+ * Boot Receiver: Requests mesh-service recovery after device restart or app update
+ * when the user previously enabled the mesh. Android may still deny background starts.
  */
 class BootReceiver : BroadcastReceiver() {
 

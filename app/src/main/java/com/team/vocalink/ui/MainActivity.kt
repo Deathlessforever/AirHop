@@ -331,6 +331,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun navigateToCoordinates(lat: Double, lon: Double) {
+        if (lat == 0.0 && lon == 0.0) {
+            Toast.makeText(this, "This message did not contain a valid location.", Toast.LENGTH_SHORT).show()
+            return
+        }
         try {
             val uri = Uri.parse("geo:$lat,$lon?q=$lat,$lon(Trapped Survivor)")
             val mapIntent = Intent(Intent.ACTION_VIEW, uri)
@@ -417,7 +421,10 @@ class MainActivity : AppCompatActivity() {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage.localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, selectedLanguage.localeTag)
+                // Ask the device recognizer to prefer on-device recognition when supported.
+                // This is a preference, not a guarantee: OEM recognizers may still require network access.
                 putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf(selectedLanguage.localeTag, "en-US"))
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak in ${selectedLanguage.nativeName} (${selectedLanguage.name})...")
             }
             speechLauncher.launch(intent)
