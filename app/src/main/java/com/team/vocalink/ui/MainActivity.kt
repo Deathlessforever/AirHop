@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.view.HapticFeedbackConstants
 import android.widget.Button
 import android.widget.EditText
@@ -417,19 +418,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchVoiceRecognizer() {
         try {
+            // Android 12+ exposes an explicit on-device recognizer capability check.
+            // Do not silently fall back to a network recognizer: AirHop's voice path
+            // must remain honest about its offline capability.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+            ) {
+                Toast.makeText(
+                    this,
+                    "Offline voice recognition is not installed for this device. Type the message or install an offline language pack.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage.localeTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, selectedLanguage.localeTag)
-                // Ask the device recognizer to prefer on-device recognition when supported.
-                // This is a preference, not a guarantee: OEM recognizers may still require network access.
                 putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf(selectedLanguage.localeTag, "en-US"))
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                 putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak in ${selectedLanguage.nativeName} (${selectedLanguage.name})...")
             }
             speechLauncher.launch(intent)
         } catch (e: Exception) {
-            Toast.makeText(this, "Voice recognizer not available, please type message", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Offline voice recognizer not available. Please type the message.", Toast.LENGTH_SHORT).show()
         }
     }
 
