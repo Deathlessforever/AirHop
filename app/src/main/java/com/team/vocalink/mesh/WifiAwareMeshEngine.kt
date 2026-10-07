@@ -23,6 +23,7 @@ import android.net.wifi.aware.WifiAwareSession
 import android.os.Build
 import android.util.Log
 import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.core.NodeIdentity
 import com.team.vocalink.security.AirHopPacketAuthenticator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,6 +32,7 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -50,17 +52,19 @@ class WifiAwareMeshEngine(
     companion object {
         private const val TAG = "WifiAwareMeshEngine"
         private const val SERVICE_NAME = "AirHopDisasterMesh"
-        private const val HELLO_TEXT = "AIRHOP/1 HELLO"
+        private const val HELLO_PREFIX = "AIRHOP/1 HELLO "
         private const val READY_PREFIX = "AIRHOP/1 READY "
         private const val FRAME_BYTES = AirHopPacketAuthenticator.SECURE_FRAME_SIZE
         private const val LINK_IDLE_MS = 60_000L
         private const val CONNECT_TIMEOUT_MS = 5_000
+        private const val HANDSHAKE_TIMEOUT_MS = 3_000
     }
 
     private val manager = context.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
     private val connectivity =
         context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     private val auth = AirHopPacketAuthenticator(context)
+    private val nodeIdentity = NodeIdentity(context)
     private var ioExecutor: ExecutorService = Executors.newCachedThreadPool()
     private val networkCallbacks = ConcurrentHashMap.newKeySet<ConnectivityManager.NetworkCallback>()
 
@@ -69,6 +73,7 @@ class WifiAwareMeshEngine(
     private var subscribeSession: SubscribeDiscoverySession? = null
 
     private val peers = ConcurrentHashMap<PeerHandle, Long>()
+    private val peerNodeIds = ConcurrentHashMap<String, PeerHandle>()
     private val links = ConcurrentHashMap<PeerHandle, Link>()
     private var serverSocket: ServerSocket? = null
     private var serverPort = 0
@@ -171,6 +176,7 @@ class WifiAwareMeshEngine(
         awareSession = null
 
         peers.clear()
+        peerNodeIds.clear()
         _peerCount.value = 0
         ioExecutor.shutdownNow()
     }
@@ -189,7 +195,13 @@ class WifiAwareMeshEngine(
                     remember(peerHandle)
                     val text = message.decodeToString()
                     when {
-                        text == HELLO_TEXT -> establishPublisherLink(peerHandle)
+                        text.startsWith(HELLO_PREFIX) -> {
+                            val remoteId = text.removePrefix(HELLO_PREFIX).trim().lowercase()
+                            if (remoteId.length == 8 && remoteId.all { it in "0123456789abcdef" }) {
+                                peerNodeIds[remoteId] = peerHandle
+                                establishPublisherLink(peerHandle)
+                            }
+                        }
                         text.startsWith(READY_PREFIX) ->
                             establishSubscriberLink(
                                 peerHandle,
@@ -220,7 +232,7 @@ class WifiAwareMeshEngine(
                 ) {
                     remember(peerHandle)
                     try {
-                        subscribeSession?.sendMessage(peerHandle, 1, HELLO_TEXT.toByteArray())
+                        subscribeSession?.sendMessage(peerHandle, 1, (HELLO_PREFIX + nodeIdentity.shortId()).toByteArray())
                     } catch (e: Exception) {
                         Log.w(TAG, "Wi-Fi Aware HELLO failed", e)
                     }
@@ -312,6 +324,14 @@ class WifiAwareMeshEngine(
                 try {
                     val socket = network.socketFactory.createSocket()
                     socket.connect(java.net.InetSocketAddress(address, awareInfo.port), CONNECT_TIMEOUT_MS)
+                    socket.getOutputStream().write(nodeIdentity.id())
+                    socket.getOutputStream().flush()
+                    val response = readHandshake(socket)
+                    if (!response.contentEquals(nodeIdentity.id())) {
+                        Log.w(TAG, "Unexpected Wi-Fi Aware peer handshake response")
+                        socket.close()
+                        return@execute
+                    }
                     installLink(peer, socket)
                 } catch (e: Exception) {
                     Log.w(TAG, "Wi-Fi Aware socket connect failed", e)
@@ -322,18 +342,34 @@ class WifiAwareMeshEngine(
 
     private fun acceptSocket(socket: Socket) {
         try {
-            val peer = peers.keys.firstOrNull { !links.containsKey(it) }
-            if (peer == null) {
-                socket.close()
-                return
-            }
+            socket.soTimeout = HANDSHAKE_TIMEOUT_MS
+            val remoteId = readHandshake(socket).joinToString("") { "%02x".format(it) }
+            val peer = peerNodeIds[remoteId]
+            if (peer == null || links.containsKey(peer)) { socket.close(); return }
+            socket.getOutputStream().write(nodeIdentity.id())
+            socket.getOutputStream().flush()
+            socket.soTimeout = 0
             installLink(peer, socket)
+        } catch (e: SocketTimeoutException) {
+            try { socket.close() } catch (_: Exception) {}
+            Log.w(TAG, "Wi-Fi Aware peer handshake timed out")
         } catch (e: Exception) {
             try { socket.close() } catch (_: Exception) {}
             Log.w(TAG, "Wi-Fi Aware socket accept failed", e)
         }
     }
 
+    private fun readHandshake(socket: Socket): ByteArray {
+        val input = socket.getInputStream()
+        val id = ByteArray(4)
+        var offset = 0
+        while (offset < id.size) {
+            val count = input.read(id, offset, id.size - offset)
+            if (count < 0) throw java.io.EOFException("Wi-Fi Aware handshake ended early")
+            offset += count
+        }
+        return id
+    }
     private fun installLink(peer: PeerHandle, socket: Socket) {
         socket.tcpNoDelay = true
         val link = Link(peer, socket, BufferedOutputStream(socket.getOutputStream()))
