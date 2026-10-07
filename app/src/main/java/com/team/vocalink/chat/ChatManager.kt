@@ -8,6 +8,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import com.team.vocalink.alert.OfflineTtsEngine
 import com.team.vocalink.core.AirHopNative
+import com.team.vocalink.core.AirHopTextAssembler
+import com.team.vocalink.core.AirHopTextFragments
 import com.team.vocalink.core.ChatMessage
 import com.team.vocalink.core.DisasterPhraseCodebook
 import com.team.vocalink.core.MessageStatus
@@ -39,6 +41,7 @@ class ChatManager(
     private val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private val prefs = context.getSharedPreferences("airhop_messages", Context.MODE_PRIVATE)
     private val nodeIdentity = com.team.vocalink.core.NodeIdentity(context)
+    private val textAssembler = AirHopTextAssembler()
     private val storageKey = "messages_v1"
     private val outboxKey = "outbox_v1"
 
@@ -65,34 +68,56 @@ class ChatManager(
         lat: Double = 0.0,
         lon: Double = 0.0,
         destinationId: Int = 0
-    ) {
-        val tokens = DisasterPhraseCodebook.encodeTextToTokens(text, phraseId)
+    ): Boolean {
+        val textBytes = text.toByteArray(Charsets.UTF_8)
+        val isFragmentedText = phraseId == 0xFE && textBytes.size > 12
+        if (isFragmentedText && textBytes.size > AirHopTextFragments.MAX_TEXT_BYTES) {
+            Log.w(TAG, "Rejected free-form message larger than ${AirHopTextFragments.MAX_TEXT_BYTES} UTF-8 bytes")
+            return false
+        }
+
+        val transferId = if (isFragmentedText) {
+            java.util.UUID.randomUUID().leastSignificantBits.toInt()
+        } else {
+            null
+        }
+        val tokenFrames = if (transferId != null) {
+            AirHopTextFragments.encode(text, transferId) ?: return false
+        } else {
+            listOf(DisasterPhraseCodebook.encodeTextToTokens(text, phraseId))
+        }
+
         var flags = lang.toInt()
         if (isSos) flags = flags or ProtocolConstants.FLAG_EMERGENCY_SOS.toInt()
-
         val latE7 = (lat * 1e7).toInt()
         val lonE7 = (lon * 1e7).toInt()
         val now = System.currentTimeMillis()
 
-        val packetBytes = AirHopNative.encodePacket(
-            flags = flags.toByte(),
-            ttl = ProtocolConstants.DEFAULT_TTL,
-            targetZone = destinationId,
-            latE7 = latE7,
-            lonE7 = lonE7,
-            tokens = tokens,
-            timestampMs = now
-        )
+        val packets = tokenFrames.mapIndexed { index, tokens ->
+            val packetBytes = AirHopNative.encodePacket(
+                flags = flags.toByte(),
+                ttl = ProtocolConstants.DEFAULT_TTL,
+                targetZone = destinationId,
+                latE7 = latE7,
+                lonE7 = lonE7,
+                tokens = tokens,
+                timestampMs = now + index
+            )
+            val packetId = java.nio.ByteBuffer.wrap(packetBytes, 3, 4)
+                .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+            packetId to packetBytes
+        }
+        val messageId = transferId ?: packets.firstOrNull()?.first ?: return false
 
-        // Extract msgId from bytes 3..6
-        val msgId = java.nio.ByteBuffer.wrap(packetBytes, 3, 4)
-            .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
-
-        onMessageSent?.invoke(msgId)
-        persistOutbox(msgId, packetBytes)
+        // Keep each radio frame durable and independently acknowledged. The chat row
+        // represents the whole spoken message and is delivered only after every frame ACKs.
+        packets.forEach { (packetId, packetBytes) ->
+            persistOutbox(packetId, packetBytes, messageId)
+            onMessageSent?.invoke(packetId)
+        }
 
         val chatMsg = ChatMessage(
-            id = msgId,
+            id = messageId,
             text = text,
             senderName = "You",
             isFromMe = true,
@@ -106,10 +131,10 @@ class ChatManager(
         _messages.value = _messages.value + chatMsg
         persistMessages()
 
-        // Broadcast over BLE + UDP mesh
-        bleMeshEngine.broadcastPacket(packetBytes)
-        currentMessageState(msgId, MessageStatus.SENT)
-        Log.i(TAG, "Queued message $msgId over offline mesh: '$text'")
+        packets.forEach { (_, packetBytes) -> bleMeshEngine.broadcastPacket(packetBytes) }
+        currentMessageState(messageId, MessageStatus.SENT)
+        Log.i(TAG, "Queued ${packets.size} frame(s) over offline mesh: '$text'")
+        return true
     }
 
     fun handleIncomingPacket(repairResult: PacketRepairResult) {
@@ -121,18 +146,25 @@ class ChatManager(
 
         if (isAck) {
             // ACKs are broadcast so relays do not mistake the acknowledged message ID
-            // for a destination node ID. New ACKs carry the original message ID in
-            // the first four token bytes; targetZone is retained as a legacy fallback.
+            // for a destination node ID. New ACKs carry the original packet ID in the
+            // first four token bytes; targetZone remains a legacy fallback.
             val ackTokens = repairResult.tokens ?: ByteArray(13)
-            val acknowledgedMsgId = if (ackTokens.size >= 4 && ackTokens.take(4).any { it != 0.toByte() }) {
+            val acknowledgedPacketId = if (ackTokens.size >= 4 && ackTokens.take(4).any { it != 0.toByte() }) {
                 java.nio.ByteBuffer.wrap(ackTokens, 0, 4)
                     .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
             } else {
                 repairResult.targetZone
             }
             scope.launch {
+                val groupId = findOutboxGroupId(acknowledgedPacketId) ?: return@launch
+                removeOutbox(acknowledgedPacketId)
+                if (hasPendingOutboxForGroup(groupId)) {
+                    Log.i(TAG, "Frame $acknowledgedPacketId acknowledged; waiting for remaining frames of $groupId")
+                    return@launch
+                }
+
                 val current = _messages.value.toMutableList()
-                val index = current.indexOfFirst { it.id == acknowledgedMsgId && it.isFromMe }
+                val index = current.indexOfFirst { it.id == groupId && it.isFromMe }
                 if (index != -1) {
                     val old = current[index]
                     val latency = System.currentTimeMillis() - old.timestamp
@@ -142,9 +174,8 @@ class ChatManager(
                     )
                     _messages.value = current
                     persistMessages()
-                    _deliveryEvent.emit(acknowledgedMsgId)
-                    removeOutbox(acknowledgedMsgId)
-                    Log.i(TAG, "BLUE TICK CONFIRMED for message $acknowledgedMsgId! Latency: $latency ms")
+                    _deliveryEvent.emit(groupId)
+                    Log.i(TAG, "BLUE TICK CONFIRMED for message $groupId! Latency: $latency ms")
                 }
             }
             return
@@ -153,15 +184,42 @@ class ChatManager(
         // Directed frames are consumed only by their destination; zero is broadcast.
         if (destinationId != 0 && destinationId != nodeIdentity.intId()) return
 
-        // Normal message received from peer
         scope.launch {
-            val existing = _messages.value.find { it.id == msgId }
-            if (existing != null) return@launch // Already have it
-
             val tokens = repairResult.tokens ?: ByteArray(13)
             val lang = (flags and ProtocolConstants.FLAG_LANG_MASK.toInt()).toByte()
-            val text = DisasterPhraseCodebook.decodeText(tokens, lang)
 
+            if (AirHopTextFragments.hasMarker(tokens)) {
+                val assembled = textAssembler.add(tokens, msgId) ?: return@launch
+                val alreadyDisplayed = _messages.value.any {
+                    it.id == assembled.groupId && !it.isFromMe
+                }
+                if (!alreadyDisplayed) {
+                    val incoming = ChatMessage(
+                        id = assembled.groupId,
+                        text = assembled.text,
+                        senderName = "Peer Node",
+                        isFromMe = false,
+                        timestamp = System.currentTimeMillis(),
+                        lat = repairResult.latitude,
+                        lon = repairResult.longitude,
+                        hopCount = (ProtocolConstants.DEFAULT_TTL - repairResult.ttl) + 1,
+                        status = MessageStatus.DELIVERED
+                    )
+                    _messages.value = _messages.value + incoming
+                    persistMessages()
+                    Log.i(TAG, "Received reassembled message from peer: ${assembled.groupId}")
+                    offlineTtsEngine.speak(assembled.text, lang)
+                }
+
+                // Do not ACK partial messages: the sender keeps retrying missing frames.
+                assembled.packetIds.forEach { sendAckPacket(it, lang) }
+                return@launch
+            }
+
+            val existing = _messages.value.find { it.id == msgId && !it.isFromMe }
+            if (existing != null) return@launch
+
+            val text = DisasterPhraseCodebook.decodeText(tokens, lang)
             val incoming = ChatMessage(
                 id = msgId,
                 text = text,
@@ -178,22 +236,40 @@ class ChatManager(
             persistMessages()
             Log.i(TAG, "Received message from peer: $msgId")
 
-            // Speak aloud automatically on User 2's phone!
             offlineTtsEngine.speak(text, lang)
-
-            // Send Delivery ACK packet back over mesh so User 1 gets the Blue Tick!
             sendAckPacket(msgId, lang)
         }
     }
 
-    private fun persistOutbox(msgId: Int, packet: ByteArray) {
+    private fun persistOutbox(msgId: Int, packet: ByteArray, groupId: Int = msgId) {
         val out = prefs.getString(outboxKey, null)?.let { runCatching { JSONArray(it) }.getOrNull() } ?: JSONArray()
         val obj = JSONObject().apply {
             put("id", msgId)
+            put("groupId", groupId)
             put("packet", Base64.encodeToString(packet, Base64.NO_WRAP))
         }
         out.put(obj)
         prefs.edit().putString(outboxKey, out.toString()).apply()
+    }
+
+    private fun findOutboxGroupId(msgId: Int): Int? {
+        val raw = prefs.getString(outboxKey, null) ?: return null
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return null
+        for (i in 0 until array.length()) {
+            val item = array.getJSONObject(i)
+            if (item.optInt("id") == msgId) return item.optInt("groupId", msgId)
+        }
+        return null
+    }
+
+    private fun hasPendingOutboxForGroup(groupId: Int): Boolean {
+        val raw = prefs.getString(outboxKey, null) ?: return false
+        val array = runCatching { JSONArray(raw) }.getOrNull() ?: return false
+        for (i in 0 until array.length()) {
+            val item = array.getJSONObject(i)
+            if (item.optInt("groupId", item.optInt("id")) == groupId) return true
+        }
+        return false
     }
 
     private fun removeOutbox(msgId: Int) {

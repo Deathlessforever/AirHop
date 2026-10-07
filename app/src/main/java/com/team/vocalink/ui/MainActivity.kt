@@ -26,6 +26,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.team.vocalink.R
 import com.team.vocalink.core.ChatMessage
+import com.team.vocalink.core.AirHopTextFragments
 import com.team.vocalink.core.DisasterPhraseCodebook
 import com.team.vocalink.core.MessageStatus
 import com.team.vocalink.core.ProtocolConstants
@@ -140,7 +141,7 @@ class MainActivity : AppCompatActivity() {
                 val spokenText = spoken?.firstOrNull()
                 if (!spokenText.isNullOrBlank()) {
                     etMessageInput.setText(spokenText)
-                    sendEmergencyMessage(spokenText)
+                    sendEmergencyMessage(spokenText, isSos = true)
                 }
             }
         }
@@ -473,24 +474,33 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+        val hasOnDeviceRecognizer = SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        if (!hasOnDeviceRecognizer) {
             Toast.makeText(
                 this,
-                "This phone has no on-device speech recognizer available. Install an offline voice model for ${selectedLanguage.name}, or use an SOS preset.",
+                "Offline speech is unavailable for ${selectedLanguage.name}; trying the phone's installed voice service. It may need internet.",
                 Toast.LENGTH_LONG
             ).show()
-            return
         }
 
         try {
-            val recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            val recognizer = if (hasOnDeviceRecognizer) {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            } else {
+                SpeechRecognizer.createSpeechRecognizer(this)
+            }
             localSpeechRecognizer = recognizer
             recognizer.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
                     safeAction {
                         isListeningForVoiceMessage = true
                         btnMicVoice.text = "Stop"
-                        Toast.makeText(this@MainActivity, "Listening offline… tap mic when finished.", Toast.LENGTH_SHORT).show()
+                        val status = if (hasOnDeviceRecognizer) {
+                            "Listening offline… tap mic when finished."
+                        } else {
+                            "Listening… tap mic when finished."
+                        }
+                        Toast.makeText(this@MainActivity, status, Toast.LENGTH_SHORT).show()
                     }
                 }
 
@@ -609,7 +619,7 @@ class MainActivity : AppCompatActivity() {
 
         val phraseId = phraseIdOverride ?: DisasterPhraseCodebook.getPhraseIdForText(text)
 
-        service.chatManager.sendMessage(
+        val queued = service.chatManager.sendMessage(
             text = text,
             phraseId = phraseId,
             isSos = isSos,
@@ -617,6 +627,14 @@ class MainActivity : AppCompatActivity() {
             lat = lat ?: 0.0,
             lon = lon ?: 0.0
         )
+        if (!queued) {
+            Toast.makeText(
+                this,
+                "Message is too long for AirHop. Keep it under ${AirHopTextFragments.MAX_TEXT_BYTES} UTF-8 bytes.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
 
         tokenVisualizerView.updateAudioRms(0.75f, com.team.vocalink.core.VadState.ACTIVE)
         window.decorView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
