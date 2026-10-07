@@ -4,7 +4,7 @@ on:
   push:
     branches: ["main", "airhop-production-foundation", "airhop-device-compatibility-hardening"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "airhop-production-foundation"]
 
 jobs:
   build:
