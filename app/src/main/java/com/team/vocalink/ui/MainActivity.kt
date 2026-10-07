@@ -456,34 +456,43 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchVoiceRecognizer() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            // Android versions before 12 do not expose a strict on-device recognizer API.
-            // Keep their system voice UI, but prefer offline recognition where supported.
-            try {
-                speechLauncher.launch(createVoiceRecognitionIntent())
-            } catch (e: Exception) {
-                android.util.Log.e("AirHopSpeech", "Could not open system speech recognition", e)
-                Toast.makeText(this, "Voice recognition is unavailable. Use an SOS preset or type a message.", Toast.LENGTH_LONG).show()
-            }
+            // Older Android releases expose speech recognition through the system UI.
+            launchSpeechActivityFallback()
             return
         }
 
         if (isListeningForVoiceMessage) {
             btnMicVoice.text = "Processing…"
-            localSpeechRecognizer?.stopListening()
+            try {
+                localSpeechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                android.util.Log.w("AirHopSpeech", "Could not stop speech listener cleanly", e)
+                releaseLocalSpeechRecognizer(cancelListening = true)
+            }
             return
         }
 
-        val hasOnDeviceRecognizer = SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
-        if (!hasOnDeviceRecognizer) {
+        val onDeviceAvailable = runCatching {
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        }.getOrDefault(false)
+        if (!onDeviceAvailable) {
             Toast.makeText(
                 this,
-                "Offline speech is unavailable for ${selectedLanguage.name}; trying the phone's installed voice service. It may need internet.",
+                "This phone has no offline speech service for ${selectedLanguage.name}; trying its installed voice service, which may need internet.",
                 Toast.LENGTH_LONG
             ).show()
         }
+        startPlatformSpeechRecognizer(useOnDevice = onDeviceAvailable)
+    }
+
+    private fun startPlatformSpeechRecognizer(useOnDevice: Boolean) {
+        if (!useOnDevice && !SpeechRecognizer.isRecognitionAvailable(this)) {
+            launchSpeechActivityFallback()
+            return
+        }
 
         try {
-            val recognizer = if (hasOnDeviceRecognizer) {
+            val recognizer = if (useOnDevice) {
                 SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
             } else {
                 SpeechRecognizer.createSpeechRecognizer(this)
@@ -494,10 +503,10 @@ class MainActivity : AppCompatActivity() {
                     safeAction {
                         isListeningForVoiceMessage = true
                         btnMicVoice.text = "Stop"
-                        val status = if (hasOnDeviceRecognizer) {
+                        val status = if (useOnDevice) {
                             "Listening offline… tap mic when finished."
                         } else {
-                            "Listening… tap mic when finished."
+                            "Listening with the phone's voice service… tap mic when finished."
                         }
                         Toast.makeText(this@MainActivity, status, Toast.LENGTH_SHORT).show()
                     }
@@ -514,7 +523,29 @@ class MainActivity : AppCompatActivity() {
                 override fun onError(error: Int) {
                     safeAction {
                         releaseLocalSpeechRecognizer()
-                        Toast.makeText(this@MainActivity, speechRecognitionErrorMessage(error), Toast.LENGTH_LONG).show()
+                        if (shouldFallbackAfterSpeechError(error)) {
+                            if (useOnDevice) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Offline speech could not start for ${selectedLanguage.name}; trying the phone's voice service.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                startPlatformSpeechRecognizer(useOnDevice = false)
+                            } else {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "The phone's speech service failed; opening its voice input screen.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                launchSpeechActivityFallback()
+                            }
+                        } else {
+                            Toast.makeText(
+                                this@MainActivity,
+                                speechRecognitionErrorMessage(error),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
                     }
                 }
 
@@ -526,10 +557,14 @@ class MainActivity : AppCompatActivity() {
                             ?.trim()
                         releaseLocalSpeechRecognizer()
                         if (recognizedText.isNullOrBlank()) {
-                            Toast.makeText(this@MainActivity, "No words were recognized. Tap the mic and try again.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(
+                                this@MainActivity,
+                                "No words were recognized. Tap the mic and try again.",
+                                Toast.LENGTH_LONG
+                            ).show()
                         } else {
                             etMessageInput.setText(recognizedText)
-                            sendEmergencyMessage(recognizedText)
+                            sendEmergencyMessage(recognizedText, isSos = true)
                         }
                     }
                 }
@@ -550,13 +585,48 @@ class MainActivity : AppCompatActivity() {
             btnMicVoice.text = "Listening…"
             recognizer.startListening(createVoiceRecognitionIntent())
         } catch (e: Exception) {
-            releaseLocalSpeechRecognizer()
-            android.util.Log.e("AirHopSpeech", "Could not start on-device speech recognition", e)
-            Toast.makeText(this, "Could not start offline voice recognition. Use an SOS preset or type a message.", Toast.LENGTH_LONG).show()
+            releaseLocalSpeechRecognizer(cancelListening = true)
+            android.util.Log.e("AirHopSpeech", "Could not start speech recognition", e)
+            if (useOnDevice) {
+                Toast.makeText(
+                    this,
+                    "Offline voice is unavailable; trying the phone's installed voice service.",
+                    Toast.LENGTH_LONG
+                ).show()
+                startPlatformSpeechRecognizer(useOnDevice = false)
+            } else {
+                launchSpeechActivityFallback()
+            }
         } catch (e: LinkageError) {
-            releaseLocalSpeechRecognizer()
-            android.util.Log.e("AirHopSpeech", "On-device speech recognition is unavailable", e)
-            Toast.makeText(this, "This phone's offline voice service is unavailable. Use an SOS preset.", Toast.LENGTH_LONG).show()
+            releaseLocalSpeechRecognizer(cancelListening = true)
+            android.util.Log.e("AirHopSpeech", "Speech recognition API is unavailable", e)
+            if (useOnDevice) {
+                startPlatformSpeechRecognizer(useOnDevice = false)
+            } else {
+                launchSpeechActivityFallback()
+            }
+        }
+    }
+
+    private fun shouldFallbackAfterSpeechError(error: Int): Boolean = when (error) {
+        SpeechRecognizer.ERROR_AUDIO,
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+        SpeechRecognizer.ERROR_NO_MATCH,
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> false
+        else -> true
+    }
+
+    private fun launchSpeechActivityFallback() {
+        try {
+            speechLauncher.launch(createVoiceRecognitionIntent())
+        } catch (e: Exception) {
+            android.util.Log.e("AirHopSpeech", "Could not open system voice input", e)
+            Toast.makeText(
+                this,
+                "Voice input is unavailable. Allow microphone access and install a speech service for ${selectedLanguage.name}. SOS presets still work.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
