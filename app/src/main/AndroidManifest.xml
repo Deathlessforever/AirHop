@@ -2,6 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- SpeechRecognizer services must be visible to apps targeting Android 11+. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <!-- Local-network transport permissions -->
     <!-- UDP is used only for local/offline relay fallback; no internet service is required. -->
     <uses-permission android:name="android.permission.INTERNET" />
