@@ -166,12 +166,15 @@ class MainActivity : AppCompatActivity() {
         val deniedRequired = required.filter {
             checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
         }
-        if (deniedRequired.isEmpty()) {
-            startAndBindMeshService()
-        } else {
+        // Never make the whole application unusable because an optional
+        // transport or notification permission was denied. Start the service
+        // and let each transport report its own capability.
+        startAndBindMeshService()
+
+        if (deniedRequired.isNotEmpty()) {
             Toast.makeText(
                 this,
-                "AirHop needs nearby-device and location permissions to run its offline mesh.",
+                "Some nearby-device permissions were denied. AirHop will use every supported transport that remains available.",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -234,7 +237,20 @@ class MainActivity : AppCompatActivity() {
             action()
         } catch (e: Exception) {
             android.util.Log.e("AirHopUI", "Action failed", e)
-            Toast.makeText(this, "AirHop could not complete that action. Check permissions and radio status.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "AirHop could not complete that action. The unavailable device feature was skipped.",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: LinkageError) {
+            // A vendor ROM or optional platform class can fail to link at runtime.
+            // Keep a single unavailable feature from taking down the whole UI.
+            android.util.Log.e("AirHopUI", "Optional platform component unavailable", e)
+            Toast.makeText(
+                this,
+                "That feature is not supported on this phone. Other AirHop functions remain available.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -636,24 +652,54 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestMeshPermissions() {
-        val perms = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
+        /*
+         * Transport capabilities are optional. Do not block the entire app
+         * because a phone lacks BLE, Wi-Fi Aware, GPS, or notifications.
+         *
+         * Android 12+ has dedicated nearby-device permissions for BLE.
+         * Android 13+ has NEARBY_WIFI_DEVICES for Wi-Fi Aware. On Android 12/12L,
+         * Wi-Fi Aware APIs can still require location.
+         */
+        val pm = packageManager
+        val hasBle = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_BLUETOOTH_LE)
+        val hasWifiAware = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_WIFI_AWARE)
+
+        val perms = mutableListOf<String>()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            perms.add(Manifest.permission.BLUETOOTH_SCAN)
-            perms.add(Manifest.permission.BLUETOOTH_ADVERTISE)
-            perms.add(Manifest.permission.BLUETOOTH_CONNECT)
-            perms.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+            if (hasBle) {
+                perms += Manifest.permission.BLUETOOTH_SCAN
+                perms += Manifest.permission.BLUETOOTH_ADVERTISE
+                perms += Manifest.permission.BLUETOOTH_CONNECT
+            }
+            if (hasWifiAware && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                perms += Manifest.permission.NEARBY_WIFI_DEVICES
+            }
+        } else if (hasBle || hasWifiAware) {
+            // Legacy Android uses location permission for nearby radio discovery.
+            perms += Manifest.permission.ACCESS_FINE_LOCATION
         }
+
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2 && hasWifiAware) {
+            // Wi-Fi Aware discovery on Android 12/12L still relies on location.
+            perms += Manifest.permission.ACCESS_FINE_LOCATION
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+            // Notifications are useful for the foreground service but are not
+            // a prerequisite for the mesh itself.
+            perms += Manifest.permission.POST_NOTIFICATIONS
         }
-        val missing = perms.filter {
+
+        val uniqueMissing = perms.distinct().filter {
             checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isEmpty()) startAndBindMeshService()
-        else permissionLauncher.launch(missing.toTypedArray())
+
+        if (uniqueMissing.isEmpty()) {
+            startAndBindMeshService()
+        } else {
+            permissionLauncher.launch(uniqueMissing.toTypedArray())
+        }
     }
 
     private fun ensureMicrophonePermissionThenVoice() {
