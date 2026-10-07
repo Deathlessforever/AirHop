@@ -69,9 +69,19 @@ class BleMeshEngine(
 
     init {
         val adapter = bluetoothAdapter
-        _isCodedPhySupported.value = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            adapter?.isLeCodedPhySupported == true &&
-            adapter.isLeExtendedAdvertisingSupported
+        _isCodedPhySupported.value = try {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                adapter?.isLeCodedPhySupported == true &&
+                adapter.isLeExtendedAdvertisingSupported
+        } catch (e: SecurityException) {
+            // Bluetooth is optional. A denied BLUETOOTH_CONNECT permission must
+            // not prevent the rest of AirHop (typed messaging/UI) from starting.
+            Log.w(TAG, "Bluetooth capability query denied; BLE transport disabled", e)
+            false
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Bluetooth capability query failed; BLE transport disabled", e)
+            false
+        }
     }
 
     @SuppressLint("MissingPermission")
