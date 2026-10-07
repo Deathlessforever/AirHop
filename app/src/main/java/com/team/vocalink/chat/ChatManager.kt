@@ -120,8 +120,16 @@ class ChatManager(
         val isAck = (flags and ProtocolConstants.FLAG_ACK.toInt()) != 0
 
         if (isAck) {
-            // This is an ACK delivery confirmation from User 2!
-            val acknowledgedMsgId = repairResult.targetZone
+            // ACKs are broadcast so relays do not mistake the acknowledged message ID
+            // for a destination node ID. New ACKs carry the original message ID in
+            // the first four token bytes; targetZone is retained as a legacy fallback.
+            val ackTokens = repairResult.tokens ?: ByteArray(13)
+            val acknowledgedMsgId = if (ackTokens.size >= 4 && ackTokens.take(4).any { it != 0.toByte() }) {
+                java.nio.ByteBuffer.wrap(ackTokens, 0, 4)
+                    .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+            } else {
+                repairResult.targetZone
+            }
             scope.launch {
                 val current = _messages.value.toMutableList()
                 val index = current.indexOfFirst { it.id == acknowledgedMsgId && it.isFromMe }
@@ -198,10 +206,20 @@ class ChatManager(
 
     private fun retryOutbox(msgId: Int) {
         scope.launch {
-            repeat(6) {
-                delay(5_000)
-                val raw = prefs.getString(outboxKey, null) ?: return@launch
-                val array = runCatching { JSONArray(raw) }.getOrNull() ?: return@launch
+            // Store-and-forward must survive long gaps between nearby relays.
+            // Use bounded exponential backoff, then keep retrying every 5 minutes
+            // until the destination ACK removes the durable outbox entry.
+            val initialBackoffMs = longArrayOf(
+                5_000L, 15_000L, 30_000L, 60_000L, 120_000L, 300_000L
+            )
+            var attempt = 0
+            while (isOutboxPending(msgId)) {
+                val delayMs = initialBackoffMs.getOrElse(attempt) { 300_000L }
+                delay(delayMs)
+                if (!isOutboxPending(msgId)) break
+
+                val raw = prefs.getString(outboxKey, null) ?: break
+                val array = runCatching { JSONArray(raw) }.getOrNull() ?: break
                 for (i in 0 until array.length()) {
                     val item = array.getJSONObject(i)
                     if (item.optInt("id") == msgId) {
@@ -209,7 +227,7 @@ class ChatManager(
                         bleMeshEngine.broadcastPacket(packet)
                     }
                 }
-                if (!isOutboxPending(msgId)) return@launch
+                attempt++
             }
         }
     }
@@ -284,14 +302,19 @@ class ChatManager(
 
     private fun sendAckPacket(targetMsgId: Int, lang: Byte) {
         val ackFlags = (ProtocolConstants.FLAG_ACK.toInt() or lang.toInt()).toByte()
-        val emptyTokens = ByteArray(13)
+        val ackTokens = ByteArray(13)
+        // ACK is intentionally broadcast (targetZone=0). Put the acknowledged
+        // message ID in the payload so relay nodes never confuse it with a node ID.
+        java.nio.ByteBuffer.wrap(ackTokens, 0, 4)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            .putInt(targetMsgId)
         val ackBytes = AirHopNative.encodePacket(
             flags = ackFlags,
-            ttl = 5.toByte(),
-            targetZone = targetMsgId, // ACK carries the acknowledged message ID
+            ttl = ProtocolConstants.DEFAULT_TTL,
+            targetZone = 0,
             latE7 = 0,
             lonE7 = 0,
-            tokens = emptyTokens,
+            tokens = ackTokens,
             timestampMs = System.currentTimeMillis()
         )
         val ackMsgId = java.nio.ByteBuffer.wrap(ackBytes, 3, 4)
