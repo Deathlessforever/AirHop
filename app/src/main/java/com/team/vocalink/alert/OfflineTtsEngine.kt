@@ -17,14 +17,19 @@ class OfflineTtsEngine(private val context: Context) : TextToSpeech.OnInitListen
 
     private var tts: TextToSpeech? = TextToSpeech(context.applicationContext, this)
     private var isReady = false
+    private var lastLanguage: Locale = Locale.ENGLISH
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             isReady = true
-            tts?.language = Locale.ENGLISH
+            val english = Locale.ENGLISH
+            val availability = tts?.isLanguageAvailable(english) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            isReady = availability >= TextToSpeech.LANG_AVAILABLE
+            lastLanguage = english
+            tts?.language = english
             tts?.setSpeechRate(0.95f)
             tts?.setPitch(1.05f)
-            Log.i(TAG, "Offline TextToSpeech initialized successfully")
+            Log.i(TAG, "Local Android TextToSpeech initialized; language availability is checked per request")
         } else {
             Log.w(TAG, "Failed to initialize TextToSpeech: status=")
         }
@@ -32,7 +37,7 @@ class OfflineTtsEngine(private val context: Context) : TextToSpeech.OnInitListen
 
     fun speak(text: String, lang: Byte = 0) {
         if (!isReady || tts == null) {
-            Log.w(TAG, "TTS not ready, queuing text: ")
+            Log.w(TAG, "TTS not ready; message remains available as text")
             return
         }
 
@@ -50,10 +55,17 @@ class OfflineTtsEngine(private val context: Context) : TextToSpeech.OnInitListen
                 com.team.vocalink.core.ProtocolConstants.LANG_ODIA.toInt() -> Locale("or", "IN")
                 else -> Locale.ENGLISH
             }
+            val availability = tts?.isLanguageAvailable(locale) ?: TextToSpeech.LANG_NOT_SUPPORTED
+            if (availability < TextToSpeech.LANG_AVAILABLE) {
+                Log.w(TAG, "Requested TTS language unavailable on this device: $locale")
+                return
+            }
+            lastLanguage = locale
             try {
                 tts?.language = locale
-            } catch (_: Exception) {
-                tts?.language = Locale.ENGLISH
+            } catch (e: Exception) {
+                Log.w(TAG, "Unable to select TTS locale: $locale", e)
+                return
             }
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "airhop_${System.currentTimeMillis()}")
             Log.i(TAG, "Spoke aloud: '$text' in locale $locale")

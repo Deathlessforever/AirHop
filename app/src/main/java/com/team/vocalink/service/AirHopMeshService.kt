@@ -71,8 +71,11 @@ class AirHopMeshService : Service() {
         private set
     lateinit var chatManager: com.team.vocalink.chat.ChatManager
         private set
+    lateinit var nodePresenceDirectory: com.team.vocalink.mesh.NodePresenceDirectory
+        private set
 
-    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+    private val serviceJob = kotlinx.coroutines.SupervisorJob()
+    private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + serviceJob)
 
     inner class LocalBinder : Binder() {
         fun getService(): AirHopMeshService = this@AirHopMeshService
@@ -91,26 +94,47 @@ class AirHopMeshService : Service() {
 
         createNotificationChannel()
 
+        try {
+        // Enter the foreground before initializing the radio stack.
+        // This avoids long engine initialization consuming the Android
+        // foreground-service startup window.
+        startForegroundServiceNotification()
+
         // Initialize Core Engines
         geofenceManager = GeofenceManager(this)
+        nodePresenceDirectory = com.team.vocalink.mesh.NodePresenceDirectory(this)
         dndAlertManager = DndBypassAlertManager(this)
         neuralTtsHook = NeuralTtsHook(this)
         offlineTtsEngine = com.team.vocalink.alert.OfflineTtsEngine(this)
 
+        // Construct the relay dispatcher before radio callbacks can fire.
+        // A radio callback may arrive immediately after start(), so capturing
+        // an uninitialized lateinit property here is unsafe.
         bleMeshEngine = BleMeshEngine(this) { rawPacket, rssi ->
-            blindRelayManager.onRawPacketScanned(rawPacket, rssi)
+            if (::blindRelayManager.isInitialized) blindRelayManager.onRawPacketScanned(rawPacket, rssi)
         }
-
         wifiAwareEngine = WifiAwareMeshEngine(this) { rawPacket ->
-            blindRelayManager.onRawPacketScanned(rawPacket, -50)
+            if (::blindRelayManager.isInitialized) blindRelayManager.onRawPacketScanned(rawPacket, -50)
         }
 
         blindRelayManager = BlindRelayManager(
             bleMeshEngine = bleMeshEngine,
             geofenceManager = geofenceManager,
             dndBypassAlertManager = dndAlertManager,
-            neuralTtsHook = neuralTtsHook
+            neuralTtsHook = neuralTtsHook,
+            context = this
         )
+
+        bleMeshEngine.setSecondaryBroadcaster { packet ->
+            if (::wifiAwareEngine.isInitialized) wifiAwareEngine.sendBurstPacket(packet)
+        }
+        bleMeshEngine.setPresenceLocationProvider {
+            val loc = geofenceManager.currentLocation.value
+            if (loc == null || !nodePresenceDirectory.visible) null else Triple(loc.latitude, loc.longitude, true)
+        }
+        bleMeshEngine.setPresenceObserver { id, lat, lon, rssi ->
+            nodePresenceDirectory.observe(id, lat, lon, rssi, true)
+        }
 
         chatManager = com.team.vocalink.chat.ChatManager(this, bleMeshEngine, offlineTtsEngine) { msgId ->
             blindRelayManager.registerSentMessageId(msgId)
@@ -122,13 +146,13 @@ class AirHopMeshService : Service() {
 
         audioIngestEngine = AudioIngestEngine(this) { tokens ->
             val loc = geofenceManager.currentLocation.value
-            val latE7 = ((loc?.latitude ?: ProtocolConstants.BENCHMARK_MYSURU_LAT) * 1e7).toInt()
-            val lonE7 = ((loc?.longitude ?: ProtocolConstants.BENCHMARK_MYSURU_LON) * 1e7).toInt()
+            val latE7 = ((loc?.latitude ?: 0.0) * 1e7).toInt()
+            val lonE7 = ((loc?.longitude ?: 0.0) * 1e7).toInt()
 
             blindRelayManager.broadcastOriginPacket(
                 flags = ProtocolConstants.LANG_KANNADA,
                 ttl = ProtocolConstants.DEFAULT_TTL,
-                targetZone = 0x01,
+                targetZone = 0,
                 latE7 = latE7,
                 lonE7 = lonE7,
                 tokens = tokens
@@ -145,6 +169,17 @@ class AirHopMeshService : Service() {
 
         startMeshEngines()
         Log.i(TAG, "AirHopMeshService initialized with offline DisasterLogStore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Mesh initialization failed", e)
+            instance = null
+            stopSelf()
+        } catch (e: LinkageError) {
+            // Vendor/API-specific linkage failures must not take down the app
+            // process when an optional platform transport is unavailable.
+            Log.e(TAG, "Optional mesh component could not be linked", e)
+            instance = null
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -153,22 +188,21 @@ class AirHopMeshService : Service() {
             return START_NOT_STICKY
         }
 
-        startForegroundServiceNotification()
         return START_STICKY
     }
 
     private fun startMeshEngines() {
-        geofenceManager.start()
-        bleMeshEngine.start()
-        wifiAwareEngine.start()
+        try { geofenceManager.start() } catch (e: Exception) { Log.e(TAG, "Location engine start failed", e) }
+        try { bleMeshEngine.start() } catch (e: Exception) { Log.e(TAG, "BLE engine start failed", e) }
+        try { wifiAwareEngine.start() } catch (e: Exception) { Log.e(TAG, "Wi-Fi Aware engine start failed", e) }
     }
 
     private fun stopMeshEngines() {
-        audioIngestEngine.stopIngest()
-        bleMeshEngine.stop()
-        wifiAwareEngine.stop()
-        geofenceManager.stop()
-        dndAlertManager.stopAlarm()
+        try { if (::audioIngestEngine.isInitialized) audioIngestEngine.stopIngest() } catch (e: Exception) { Log.w(TAG, "Audio stop failed", e) }
+        try { if (::bleMeshEngine.isInitialized) bleMeshEngine.stop() } catch (e: Exception) { Log.w(TAG, "BLE stop failed", e) }
+        try { if (::wifiAwareEngine.isInitialized) wifiAwareEngine.stop() } catch (e: Exception) { Log.w(TAG, "Wi-Fi Aware stop failed", e) }
+        try { if (::geofenceManager.isInitialized) geofenceManager.stop() } catch (e: Exception) { Log.w(TAG, "Location stop failed", e) }
+        try { if (::dndAlertManager.isInitialized) dndAlertManager.stopAlarm() } catch (e: Exception) { Log.w(TAG, "Alert stop failed", e) }
     }
 
     private fun createNotificationChannel() {
@@ -197,7 +231,7 @@ class AirHopMeshService : Service() {
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AirHop Disaster Transceiver Active")
-            .setContentText("Listening for BLE Coded PHY (S=8) & Wi-Fi Aware mesh frames")
+            .setContentText("AirHop mesh relay active — waiting for nearby devices")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -205,26 +239,33 @@ class AirHopMeshService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            // remoteMessaging was introduced in API 34 and is required for
+            // target-34+ foreground services of this type.
             startForeground(
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING
             )
         } else {
+            // Do not pass the API-34 remoteMessaging bit to older Android.
             startForeground(NOTIFICATION_ID, notification)
         }
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        serviceJob.cancel()
         stopMeshEngines()
+        try { if (::blindRelayManager.isInitialized) blindRelayManager.close() } catch (e: Exception) { Log.w(TAG, "Relay shutdown failed", e) }
+        try { if (::chatManager.isInitialized) chatManager.close() } catch (e: Exception) { Log.w(TAG, "Chat shutdown failed", e) }
+        try { if (::offlineTtsEngine.isInitialized) offlineTtsEngine.shutdown() } catch (e: Exception) { Log.w(TAG, "TTS shutdown failed", e) }
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
             }
         } catch (_: Exception) {}
         instance = null
+        super.onDestroy()
         Log.i(TAG, "AirHopMeshService destroyed")
     }
 }

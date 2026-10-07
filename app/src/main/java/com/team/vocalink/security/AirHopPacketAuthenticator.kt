@@ -21,7 +21,7 @@ import android.security.keystore.KeyProperties
  * under an Android Keystore AES key. This class authenticates transport frames;
  * it does not provide confidentiality.
  */
-class AirHopPacketAuthenticator(context: Context, private val testKey: ByteArray? = null) {
+class AirHopPacketAuthenticator(context: Context? = null, private val testKey: ByteArray? = null) {
     companion object {
         const val TAG_BYTES = 8
         const val SECURE_FRAME_SIZE = 48
@@ -32,8 +32,8 @@ class AirHopPacketAuthenticator(context: Context, private val testKey: ByteArray
         private const val NONCE_BYTES = 12
     }
 
-    private val appContext = context.applicationContext
-    private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private val appContext = context?.applicationContext
+    private val prefs = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private val jvmTestWrappingKey = SecretKeySpec(
         ByteArray(32).also { SecureRandom().nextBytes(it) },
         "AES"
@@ -68,6 +68,7 @@ class AirHopPacketAuthenticator(context: Context, private val testKey: ByteArray
 
     private fun key(): ByteArray {
         testKey?.let { require(it.size == 32) { "Test AirHop key must be 256 bits" }; return it.copyOf() }
+        val prefs = requireNotNull(prefs) { "Android Context is required when no test key is supplied" }
         val sealed = prefs.getString(SEALED_KEY, null)
         if (sealed != null) {
             return unseal(Base64.decode(sealed, Base64.NO_WRAP))
@@ -105,7 +106,7 @@ class AirHopPacketAuthenticator(context: Context, private val testKey: ByteArray
             throw IllegalArgumentException("Invalid Base64 AirHop group key", e)
         }
         require(bytes.size == 32) { "AirHop group key must be 256 bits" }
-        prefs.edit()
+        requireNotNull(prefs) { "Android Context is required for key import" }.edit()
             .putString(
                 SEALED_KEY,
                 Base64.encodeToString(seal(bytes), Base64.NO_WRAP)

@@ -11,7 +11,9 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.view.HapticFeedbackConstants
 import android.widget.Button
 import android.widget.EditText
@@ -26,8 +28,8 @@ import com.team.vocalink.R
 import com.team.vocalink.core.ChatMessage
 import com.team.vocalink.core.DisasterPhraseCodebook
 import com.team.vocalink.core.MessageStatus
-import com.team.vocalink.core.PacketRepairResult
 import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.security.AirHopPacketAuthenticator
 import android.net.Uri
 import com.team.vocalink.alert.EmergencySurvivalGuide
 import com.team.vocalink.alert.FlashlightStrobeManager
@@ -35,6 +37,7 @@ import com.team.vocalink.alert.SituationalTriageDialog
 import com.team.vocalink.service.AirHopMeshService
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import java.util.Locale
 
 class MainActivity : AppCompatActivity() {
@@ -77,8 +80,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnMicVoice: Button
     private lateinit var etMessageInput: EditText
     private lateinit var btnSendMessage: Button
-    private lateinit var btnDemoScenarios: Button
     private lateinit var btnExportLogs: Button
+    private lateinit var btnSecurity: Button
 
     // Quick Disaster Chips
     private lateinit var chipPresetFlood: Button
@@ -92,39 +95,107 @@ class MainActivity : AppCompatActivity() {
     private var isSosSirenActive = false
     private var meshService: AirHopMeshService? = null
     private var isBound = false
+    private var serviceObserversStarted = false
+    private var localSpeechRecognizer: SpeechRecognizer? = null
+    private var isListeningForVoiceMessage = false
+    private val serviceObserverJobs = mutableListOf<Job>()
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as AirHopMeshService.LocalBinder
-            meshService = binder.getService()
-            isBound = true
-            observeServiceData()
+            safeAction {
+                val binder = service as? AirHopMeshService.LocalBinder ?: run {
+                    Toast.makeText(this@MainActivity, "Invalid mesh service connection", Toast.LENGTH_LONG).show()
+                    return@safeAction
+                }
+                meshService = binder.getService()
+                isBound = true
+                if (!serviceObserversStarted) {
+                    serviceObserversStarted = true
+                    observeServiceData()
+                }
+            }
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            meshService = null
-            isBound = false
+            safeAction {
+                serviceObserverJobs.forEach { it.cancel() }
+                serviceObserverJobs.clear()
+                meshService = null
+                isBound = false
+                serviceObserversStarted = false
+                Toast.makeText(this@MainActivity, "AirHop mesh disconnected. Reconnecting…", Toast.LENGTH_SHORT).show()
+                if (!isFinishing && !isDestroyed) {
+                    window.decorView.postDelayed({ startAndBindMeshService() }, 500L)
+                }
+            }
         }
     }
 
     private val speechLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val spokenText = spoken?.firstOrNull()
-            if (!spokenText.isNullOrBlank()) {
-                etMessageInput.setText(spokenText)
-                sendEmergencyMessage(spokenText)
+        safeAction {
+            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+                val spoken = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                val spokenText = spoken?.firstOrNull()
+                if (!spokenText.isNullOrBlank()) {
+                    etMessageInput.setText(spokenText)
+                    sendEmergencyMessage(spokenText, isSos = true)
+                }
+            }
+        }
+    }
+
+    private val micPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        safeAction {
+            if (granted) launchVoiceRecognizer()
+            else Toast.makeText(this, "Microphone permission denied. Typed messages still work.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private val cameraPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        safeAction {
+            if (granted) {
+                toggleSosSirenAndStrobe()
+            } else {
+                val service = meshService
+                if (service != null) {
+                    isSosSirenActive = true
+                    try { service.dndAlertManager.triggerSosAlarm(loopContinuous = true) } catch (_: Exception) {}
+                    sendEmergencyMessage("EMERGENCY SOS BROADCAST: IMMEDIATE LIFE DANGER!", isSos = true, phraseIdOverride = 1)
+                    Toast.makeText(this, "SOS mesh broadcast sent. Flashlight disabled.", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this, "SOS mesh is not ready yet.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ ->
-        startAndBindMeshService()
-        checkBatteryOptimization()
+    ) { result ->
+        safeAction {
+            val required = result.keys.filter { it != Manifest.permission.POST_NOTIFICATIONS }
+            val deniedRequired = required.filter {
+                checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+            // Never make the whole application unusable because an optional
+            // transport or notification permission was denied. Start the service
+            // and let each transport report its own capability.
+            startAndBindMeshService()
+
+            if (deniedRequired.isNotEmpty()) {
+                Toast.makeText(
+                    this,
+                    "Some nearby-device permissions were denied. AirHop will use every supported transport that remains available.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -152,8 +223,8 @@ class MainActivity : AppCompatActivity() {
         btnMicVoice = findViewById(R.id.btnMicVoice)
         etMessageInput = findViewById(R.id.etMessageInput)
         btnSendMessage = findViewById(R.id.btnSendMessage)
-        btnDemoScenarios = findViewById(R.id.btnDemoScenarios)
         btnExportLogs = findViewById(R.id.btnExportLogs)
+        btnSecurity = findViewById(R.id.btnSecurity)
 
         chipPresetFlood = findViewById(R.id.chipPresetFlood)
         chipPresetMedical = findViewById(R.id.chipPresetMedical)
@@ -179,92 +250,77 @@ class MainActivity : AppCompatActivity() {
         rvChatMessages.adapter = chatAdapter
     }
 
-    private fun setupListeners() {
-        // Multi-Language Selector Dialog
-        btnSelectLanguage.setOnClickListener {
-            showLanguageSelectionDialog()
-        }
-
-        // 72-Hour Disaster Battery Saver Mode Toggle
-        btnBatteryMode.setOnClickListener {
-            toggleBatteryMode()
-        }
-
-        // Nearby Relays & Zero-Contact Explanation Dialog
-        btnNearbyPeers.setOnClickListener {
-            showRelayExplanationDialog()
-        }
-
-        // Emergency SOS Siren & Optical Strobe Beacon Toggle
-        btnSos.setOnClickListener {
-            toggleSosSirenAndStrobe()
-        }
-
-        // Quick Situational Triage Report
-        btnTriageReport.setOnClickListener {
-            SituationalTriageDialog.show(this) { reportText, isSos ->
-                sendEmergencyMessage(reportText, isSos = isSos)
-                Toast.makeText(this, "Emergency Situational Report Broadcasted!", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        // Offline First-Aid & Emergency Survival Guide
-        btnSurvivalGuide.setOnClickListener {
-            EmergencySurvivalGuide.showGuideDialog(this)
-        }
-
-        // Send Button
-        btnSendMessage.setOnClickListener {
-            val text = etMessageInput.text.toString().trim()
-            if (text.isNotBlank()) {
-                sendEmergencyMessage(text)
-                etMessageInput.setText("")
-            } else {
-                val defaultMsg = DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte)
-                sendEmergencyMessage(defaultMsg, phraseIdOverride = 1)
-            }
-        }
-
-        // Voice Microphone (Speech-To-Text in selected language)
-        btnMicVoice.setOnClickListener {
-            launchVoiceRecognizer()
-        }
-
-        // Quick Preset Chips (in selected language)
-        chipPresetFlood.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 1)
-        }
-        chipPresetEvac.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(2, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 2)
-        }
-        chipPresetMedical.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(3, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 3)
-        }
-        chipPresetRubble.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(4, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 4)
-        }
-        chipPresetWater.setOnClickListener {
-            val msg = DisasterPhraseCodebook.getPhrase(5, selectedLanguage.langByte)
-            sendEmergencyMessage(msg, phraseIdOverride = 5)
-        }
-
-        // Demo Peer ➔ Blue Tick Simulator (Loopback evaluation for 1 phone)
-        btnDemoScenarios.setOnClickListener {
-            simulatePeerExchangeAndBlueTick()
-        }
-
-        // Export Logs as CSV
-        btnExportLogs.setOnClickListener {
-            exportTriageLogs()
+    private fun safeAction(action: () -> Unit) {
+        try {
+            action()
+        } catch (e: Exception) {
+            android.util.Log.e("AirHopUI", "Action failed", e)
+            Toast.makeText(
+                this,
+                "AirHop could not complete that action. The unavailable device feature was skipped.",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: LinkageError) {
+            // A vendor ROM or optional platform class can fail to link at runtime.
+            // Keep a single unavailable feature from taking down the whole UI.
+            android.util.Log.e("AirHopUI", "Optional platform component unavailable", e)
+            Toast.makeText(
+                this,
+                "That feature is not supported on this phone. Other AirHop functions remain available.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
+    private fun setupListeners() {
+        btnSelectLanguage.setOnClickListener { safeAction { showLanguageSelectionDialog() } }
+        btnBatteryMode.setOnClickListener { safeAction { toggleBatteryMode() } }
+        btnNearbyPeers.setOnClickListener { safeAction { startActivity(Intent(this, AirHopMapActivity::class.java)) } }
+        btnSos.setOnClickListener { safeAction { ensureCameraPermissionThenSos() } }
+
+        btnTriageReport.setOnClickListener {
+            safeAction {
+                SituationalTriageDialog.show(this) { reportText, isSos ->
+                    safeAction {
+                        sendEmergencyMessage(reportText, isSos = isSos)
+                        Toast.makeText(this, "Emergency report sent to the mesh.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+
+        btnSurvivalGuide.setOnClickListener { safeAction { EmergencySurvivalGuide.showGuideDialog(this) } }
+
+        btnSendMessage.setOnClickListener {
+            safeAction {
+                val text = etMessageInput.text.toString().trim()
+                if (text.isNotBlank()) {
+                    sendEmergencyMessage(text)
+                    etMessageInput.setText("")
+                } else {
+                    val defaultMsg = DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte)
+                    sendEmergencyMessage(defaultMsg, phraseIdOverride = 1)
+                }
+            }
+        }
+
+        btnMicVoice.setOnClickListener { safeAction { ensureMicrophonePermissionThenVoice() } }
+
+        chipPresetFlood.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(1, selectedLanguage.langByte), phraseIdOverride = 1) } }
+        chipPresetEvac.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(2, selectedLanguage.langByte), phraseIdOverride = 2) } }
+        chipPresetMedical.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(3, selectedLanguage.langByte), phraseIdOverride = 3) } }
+        chipPresetRubble.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(4, selectedLanguage.langByte), phraseIdOverride = 4) } }
+        chipPresetWater.setOnClickListener { safeAction { sendEmergencyMessage(DisasterPhraseCodebook.getPhrase(5, selectedLanguage.langByte), phraseIdOverride = 5) } }
+
+        btnSecurity.setOnClickListener { safeAction { showSecurityDialog() } }
+        btnExportLogs.setOnClickListener { safeAction { exportTriageLogs() } }
+    }
+
     private fun toggleSosSirenAndStrobe() {
-        val service = meshService ?: return
+        val service = meshService ?: run {
+            Toast.makeText(this, "Mesh service is still starting. Try SOS again in a moment.", Toast.LENGTH_SHORT).show()
+            return
+        }
         isSosSirenActive = !isSosSirenActive
 
         if (isSosSirenActive) {
@@ -272,10 +328,14 @@ class MainActivity : AppCompatActivity() {
             btnSos.setBackgroundColor(android.graphics.Color.parseColor("#D50000"))
 
             // 1. Play continuous tactical emergency siren
-            service.dndAlertManager.triggerSosAlarm(loopContinuous = true)
+            try { service.dndAlertManager.triggerSosAlarm(loopContinuous = true) } catch (e: Exception) {
+                android.util.Log.e("AirHopSOS", "Local alarm unavailable", e)
+            }
 
             // 2. Start optical SOS Morse strobe on camera LED
-            flashlightStrobeManager.startSosStrobe()
+            try { flashlightStrobeManager.startSosStrobe() } catch (e: Exception) {
+                android.util.Log.e("AirHopSOS", "Flash strobe unavailable", e)
+            }
 
             // 3. Broadcast high-priority SOS emergency packet
             val sosMsg = "🚨 EMERGENCY SOS BROADCAST: IMMEDIATE LIFE DANGER!"
@@ -299,17 +359,21 @@ class MainActivity : AppCompatActivity() {
         service.bleMeshEngine.setPowerSaveMode(newEco)
 
         if (newEco) {
-            btnBatteryMode.text = "🔋 72h ECO"
+            btnBatteryMode.text = "🔋 ECO MODE"
             btnBatteryMode.setTextColor(android.graphics.Color.parseColor("#00E676"))
-            Toast.makeText(this, "🔋 72-Hour Disaster Battery Mode ACTIVE: BLE duty-cycled to save phone power.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "🔋 ECO mode active: BLE scanning uses a lower-power duty cycle.", Toast.LENGTH_LONG).show()
         } else {
-            btnBatteryMode.text = "⚡ 100% PWR"
+            btnBatteryMode.text = "⚡ FULL POWER"
             btnBatteryMode.setTextColor(android.graphics.Color.parseColor("#FFD600"))
-            Toast.makeText(this, "⚡ Full Power Mode ACTIVE: Continuous low-latency packet relay.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "⚡ Full-power mode active: BLE scanning prioritizes responsiveness.", Toast.LENGTH_SHORT).show()
         }
     }
 
     private fun navigateToCoordinates(lat: Double, lon: Double) {
+        if (lat == 0.0 && lon == 0.0) {
+            Toast.makeText(this, "This message did not contain a valid location.", Toast.LENGTH_SHORT).show()
+            return
+        }
         try {
             val uri = Uri.parse("geo:$lat,$lon?q=$lat,$lon(Trapped Survivor)")
             val mapIntent = Intent(Intent.ACTION_VIEW, uri)
@@ -351,28 +415,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showRelayExplanationDialog() {
-        val activeCount = meshService?.bleMeshEngine?.activePeerCount?.value ?: 2
-        val displayCount = if (activeCount > 0) activeCount else 2
+        val activeCount = meshService?.bleMeshEngine?.activePeerCount?.value ?: 0
+        val message = """
+            WHY ARE THERE NO PHONE CONTACTS?
+            In severe disasters, cellular towers and internet may fail. AirHop does not require SIM contacts.
+
+            HOW DOES SHARING WORK?
+            Any nearby phone with AirHop can discover other AirHop phones and act as a relay node.
+
+            HOW DOES THE PACKET HOP?
+            Messages are forwarded over supported offline device-to-device transports. Practical range depends on hardware, environment, and transport availability.
+
+            DELIVERY CONFIRMATION:
+            A message is marked delivered only when a real acknowledgment matching its message ID reaches this device.
+
+            ACTIVE AIRHOP RELAYS OBSERVED:
+            • Active nodes observed by this device: $activeCount
+        """.trimIndent()
 
         AlertDialog.Builder(this)
-            .setTitle("📡 AirHop Mesh: Zero Contacts Needed")
-            .setMessage(
-                "WHY ARE THERE NO PHONE CONTACTS?\n" +
-                "In severe disasters (floods, earthquakes, cyclones), cellular towers & internet grids completely fail. You cannot dial phone numbers or look up SIM contacts.\n\n" +
-                "HOW DOES SHARING WORK?\n" +
-                "Any nearby phone with AirHop installed automatically discovers other phones and acts as an autonomous relay node.\n\n" +
-                "HOW DOES THE PACKET HOP?\n" +
-                "Your spoken voice is converted to a compact 40-byte neural packet. Nearby phones automatically hop it forward over Bluetooth LE Coded PHY (up to 1km) and local offline mesh until it reaches rescue personnel.\n\n" +
-                "GUARANTEED BLUE TICK (✓✓):\n" +
-                "When Phone 2 receives your alert and reads it aloud, it automatically returns an encrypted ACK packet. Your single checkmark (✓) instantly turns into a WhatsApp-style Double Blue Tick (✓✓)!\n\n" +
-                "ACTIVE AIRHOP RELAYS IN RANGE:\n" +
-                "• Relay Node #A491 (RSSI -42 dBm, ~1.5m away)\n" +
-                "• Relay Node #B720 (Hop Count 1, ~25m away)\n" +
-                "• Total Active Nodes: $displayCount in local mesh"
-            )
-            .setPositiveButton("📡 PING ALL RELAYS") { _, _ ->
-                pingMeshRelays()
-            }
+            .setTitle("AirHop Mesh: Offline Relay")
+            .setMessage(message)
+            .setPositiveButton("PING RELAYS") { _, _ -> pingMeshRelays() }
             .setNegativeButton("GOT IT", null)
             .show()
     }
@@ -391,18 +455,225 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launchVoiceRecognizer() {
-        try {
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage.localeTag)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, selectedLanguage.localeTag)
-                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf(selectedLanguage.localeTag, "en-US"))
-                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak in ${selectedLanguage.nativeName} (${selectedLanguage.name})...")
-            }
-            speechLauncher.launch(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Voice recognizer not available, please type message", Toast.LENGTH_SHORT).show()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            // Older Android releases expose speech recognition through the system UI.
+            launchSpeechActivityFallback()
+            return
         }
+
+        if (isListeningForVoiceMessage) {
+            btnMicVoice.text = "Processing…"
+            try {
+                localSpeechRecognizer?.stopListening()
+            } catch (e: Exception) {
+                android.util.Log.w("AirHopSpeech", "Could not stop speech listener cleanly", e)
+                releaseLocalSpeechRecognizer(cancelListening = true)
+            }
+            return
+        }
+
+        val onDeviceAvailable = runCatching {
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        }.getOrDefault(false)
+        if (!onDeviceAvailable) {
+            Toast.makeText(
+                this,
+                "This phone has no offline speech service for ${selectedLanguage.name}; trying its installed voice service, which may need internet.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+        startPlatformSpeechRecognizer(useOnDevice = onDeviceAvailable)
+    }
+
+    private fun startPlatformSpeechRecognizer(useOnDevice: Boolean) {
+        if (!useOnDevice && !SpeechRecognizer.isRecognitionAvailable(this)) {
+            launchSpeechActivityFallback()
+            return
+        }
+
+        try {
+            val recognizer = if (useOnDevice) {
+                SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            } else {
+                SpeechRecognizer.createSpeechRecognizer(this)
+            }
+            localSpeechRecognizer = recognizer
+            recognizer.setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) {
+                    safeAction {
+                        isListeningForVoiceMessage = true
+                        btnMicVoice.text = "Stop"
+                        val status = if (useOnDevice) {
+                            "Listening offline… tap mic when finished."
+                        } else {
+                            "Listening with the phone's voice service… tap mic when finished."
+                        }
+                        Toast.makeText(this@MainActivity, status, Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                override fun onBeginningOfSpeech() = Unit
+                override fun onRmsChanged(rmsdB: Float) = Unit
+                override fun onBufferReceived(buffer: ByteArray?) = Unit
+
+                override fun onEndOfSpeech() {
+                    safeAction { btnMicVoice.text = "Processing…" }
+                }
+
+                override fun onError(error: Int) {
+                    safeAction {
+                        releaseLocalSpeechRecognizer()
+                        if (shouldFallbackAfterSpeechError(error)) {
+                            if (useOnDevice) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Offline speech could not start for ${selectedLanguage.name}; trying the phone's voice service.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                startPlatformSpeechRecognizer(useOnDevice = false)
+                            } else {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "The phone's speech service failed; opening its voice input screen.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                launchSpeechActivityFallback()
+                            }
+                        } else {
+                            Toast.makeText(
+                                this@MainActivity,
+                                speechRecognitionErrorMessage(error),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+
+                override fun onResults(results: Bundle?) {
+                    safeAction {
+                        val recognizedText = results
+                            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.firstOrNull()
+                            ?.trim()
+                        releaseLocalSpeechRecognizer()
+                        if (recognizedText.isNullOrBlank()) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                "No words were recognized. Tap the mic and try again.",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } else {
+                            etMessageInput.setText(recognizedText)
+                            sendEmergencyMessage(recognizedText, isSos = true)
+                        }
+                    }
+                }
+
+                override fun onPartialResults(partialResults: Bundle?) {
+                    safeAction {
+                        val partial = partialResults
+                            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.firstOrNull()
+                        if (!partial.isNullOrBlank()) etMessageInput.setText(partial)
+                    }
+                }
+
+                override fun onEvent(eventType: Int, params: Bundle?) = Unit
+            })
+
+            isListeningForVoiceMessage = true
+            btnMicVoice.text = "Listening…"
+            recognizer.startListening(createVoiceRecognitionIntent())
+        } catch (e: Exception) {
+            releaseLocalSpeechRecognizer(cancelListening = true)
+            android.util.Log.e("AirHopSpeech", "Could not start speech recognition", e)
+            if (useOnDevice) {
+                Toast.makeText(
+                    this,
+                    "Offline voice is unavailable; trying the phone's installed voice service.",
+                    Toast.LENGTH_LONG
+                ).show()
+                startPlatformSpeechRecognizer(useOnDevice = false)
+            } else {
+                launchSpeechActivityFallback()
+            }
+        } catch (e: LinkageError) {
+            releaseLocalSpeechRecognizer(cancelListening = true)
+            android.util.Log.e("AirHopSpeech", "Speech recognition API is unavailable", e)
+            if (useOnDevice) {
+                startPlatformSpeechRecognizer(useOnDevice = false)
+            } else {
+                launchSpeechActivityFallback()
+            }
+        }
+    }
+
+    private fun shouldFallbackAfterSpeechError(error: Int): Boolean = when (error) {
+        SpeechRecognizer.ERROR_AUDIO,
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+        SpeechRecognizer.ERROR_NO_MATCH,
+        SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> false
+        else -> true
+    }
+
+    private fun launchSpeechActivityFallback() {
+        try {
+            speechLauncher.launch(createVoiceRecognitionIntent())
+        } catch (e: Exception) {
+            android.util.Log.e("AirHopSpeech", "Could not open system voice input", e)
+            Toast.makeText(
+                this,
+                "Voice input is unavailable. Allow microphone access and install a speech service for ${selectedLanguage.name}. SOS presets still work.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun createVoiceRecognitionIntent(): Intent =
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, selectedLanguage.localeTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, selectedLanguage.localeTag)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+            putExtra(
+                "android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES",
+                arrayOf(selectedLanguage.localeTag, "en-US")
+            )
+            putExtra(
+                RecognizerIntent.EXTRA_PROMPT,
+                "Speak in ${selectedLanguage.nativeName} (${selectedLanguage.name})…"
+            )
+        }
+
+    private fun releaseLocalSpeechRecognizer(cancelListening: Boolean = false) {
+        isListeningForVoiceMessage = false
+        val recognizer = localSpeechRecognizer
+        localSpeechRecognizer = null
+        try {
+            if (cancelListening) recognizer?.cancel()
+            recognizer?.destroy()
+        } catch (e: Exception) {
+            android.util.Log.w("AirHopSpeech", "Error closing local speech recognizer", e)
+        } finally {
+            if (::btnMicVoice.isInitialized) btnMicVoice.text = "🎙"
+        }
+    }
+
+    private fun speechRecognitionErrorMessage(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_AUDIO -> "The microphone could not start. Check microphone permission and the phone's mic privacy switch."
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Allow microphone access for AirHop, then try again."
+        SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
+            "The on-device recognizer could not complete speech recognition. Check that an offline model is installed for ${selectedLanguage.name}."
+        SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT ->
+            "No speech was recognized. Tap the mic and try again."
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY ->
+            "The voice recognizer is busy. Wait a moment and try again."
+        SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE ->
+            "This phone has no offline speech model for ${selectedLanguage.name}. Use an SOS preset or choose a language with an installed offline model."
+        else -> "Offline speech recognition failed (error $error). Use an SOS preset or try again."
     }
 
     private fun sendEmergencyMessage(text: String, isSos: Boolean = false, phraseIdOverride: Int? = null) {
@@ -412,90 +683,70 @@ class MainActivity : AppCompatActivity() {
         }
 
         val loc = service.geofenceManager.currentLocation.value
-        val lat = loc?.latitude ?: ProtocolConstants.BENCHMARK_MYSURU_LAT
-        val lon = loc?.longitude ?: ProtocolConstants.BENCHMARK_MYSURU_LON
+        val lat = loc?.latitude
+        val lon = loc?.longitude
 
         val phraseId = phraseIdOverride ?: DisasterPhraseCodebook.getPhraseIdForText(text)
 
-        service.chatManager.sendMessage(
+        val queued = service.chatManager.sendMessage(
             text = text,
             phraseId = phraseId,
             isSos = isSos,
             lang = selectedLanguage.langByte,
-            lat = lat,
-            lon = lon
+            lat = lat ?: 0.0,
+            lon = lon ?: 0.0
         )
+        if (!queued) {
+            Toast.makeText(
+                this,
+                "Message is too long to send over AirHop. Shorten it and try again.",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
 
         tokenVisualizerView.updateAudioRms(0.75f, com.team.vocalink.core.VadState.ACTIVE)
         window.decorView.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
     }
 
-    private fun simulatePeerExchangeAndBlueTick() {
-        val service = meshService ?: return
-
-        // 1. Send User 1 message in chosen language
-        val phraseId = 1
-        val alertText = DisasterPhraseCodebook.getPhrase(phraseId, selectedLanguage.langByte)
-        sendEmergencyMessage(alertText, phraseIdOverride = phraseId)
-
-        Toast.makeText(this, "User 1 sent packet over BLE... Single tick ✓", Toast.LENGTH_SHORT).show()
-
-        // 2. Simulate User 2 receiving it after 280ms -> Speaks aloud in selected language -> Dispatches ACK
-        rvChatMessages.postDelayed({
-            val lastSent = service.chatManager.messages.value.lastOrNull { it.isFromMe }
-            if (lastSent != null) {
-                // User 2 device speaks aloud in selected language
-                service.offlineTtsEngine.speak(alertText, selectedLanguage.langByte)
-
-                // Trigger ACK back to User 1
-                service.chatManager.handleIncomingPacket(
-                    PacketRepairResult(
-                        success = true,
-                        correctedBytes = 0,
-                        hadErrors = false,
-                        repairedPacket = null,
-                        msgId = 9999,
-                        flags = (ProtocolConstants.FLAG_ACK.toInt() or selectedLanguage.langByte.toInt()),
-                        ttl = 5,
-                        targetZone = lastSent.id, // target message confirmed
-                        latE7 = 0,
-                        lonE7 = 0,
-                        tokens = null
-                    )
-                )
-
-                window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-                Toast.makeText(this, "User 2 received & spoke! Double Blue Tick ✓✓ activated!", Toast.LENGTH_LONG).show()
-
-                // 3. User 2 sends reply 1.2s later in selected language
-                rvChatMessages.postDelayed({
-                    val replyPhraseId = 6
-                    val replyText = DisasterPhraseCodebook.getPhrase(replyPhraseId, selectedLanguage.langByte)
-                    service.chatManager.handleIncomingPacket(
-                        PacketRepairResult(
-                            success = true,
-                            correctedBytes = 0,
-                            hadErrors = false,
-                            repairedPacket = null,
-                            msgId = (1000..9999).random(),
-                            flags = selectedLanguage.langByte.toInt(),
-                            ttl = 8,
-                            targetZone = 0x01,
-                            latE7 = (12.2965 * 1e7).toInt(),
-                            lonE7 = (76.6400 * 1e7).toInt(),
-                            tokens = DisasterPhraseCodebook.encodeTextToTokens(replyText, replyPhraseId)
-                        )
-                    )
-                }, 1200)
+    private fun showSecurityDialog() {
+        val auth = AirHopPacketAuthenticator(this)
+        val currentKey = auth.exportKey()
+        val input = EditText(this).apply {
+            setText(currentKey)
+            hint = "256-bit shared AirHop key"
+            setSingleLine(true)
+            setSelectAllOnFocus(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Secure AirHop mesh")
+            .setMessage("Use the same 256-bit group key on every phone that should participate in the same private mesh.")
+            .setView(input)
+            .setPositiveButton("Save key") { _, _ ->
+                try {
+                    auth.importKey(input.text.toString())
+                    Toast.makeText(this, "Mesh security key saved. Restarting mesh transports.", Toast.LENGTH_SHORT).show()
+                    restartMeshServiceForKeyChange()
+                } catch (_: Exception) {
+                    Toast.makeText(this, "Invalid key. Use the generated 256-bit value.", Toast.LENGTH_LONG).show()
+                }
             }
-        }, 320)
+            .setNeutralButton("Copy key") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("AirHop key", currentKey))
+                Toast.makeText(this, "Key copied. Share it only with trusted devices.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun observeServiceData() {
         val service = meshService ?: return
+        serviceObserverJobs.forEach { it.cancel() }
+        serviceObserverJobs.clear()
 
         // 1. Observe Chat Messages with auto-scroll
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.chatManager.messages.collectLatest { list ->
                 chatAdapter.submitList(list) {
                     if (list.isNotEmpty()) {
@@ -506,29 +757,44 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 2. Observe Delivery ACK events for Blue Tick haptics
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.chatManager.deliveryEvent.collectLatest { _ ->
                 window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
             }
         }
 
         // 3. Observe Peer Counts and update the Zero-Contact banner
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
+            service.bleMeshEngine.isCodedPhySupported.collectLatest { supported ->
+                tvBleStatus.text = if (supported) "Bluetooth: extended + coded" else "Bluetooth: extended unavailable"
+            }
+        }
+
+        serviceObserverJobs += lifecycleScope.launch {
+            service.wifiAwareEngine.isAwareAvailable.collectLatest { available ->
+                tvWifiAwareStatus.text = if (available) "Wi-Fi Aware: available" else "Wi-Fi Aware: unavailable"
+            }
+        }
+
+        serviceObserverJobs += lifecycleScope.launch {
             service.bleMeshEngine.activePeerCount.collectLatest { count ->
-                val displayCount = if (count > 0) count else 2
-                btnNearbyPeers.text = "🟢 $displayCount Nearby Relays Active • Zero Contacts Needed [ℹ️ Tap Info]"
+                btnNearbyPeers.text = if (count == 0) {
+                    "No nearby AirHop nodes observed"
+                } else {
+                    "🟢 $count nearby AirHop nodes observed"
+                }
             }
         }
 
         // 4. Observe Audio RMS Waveform
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.audioIngestEngine.currentRms.collectLatest { rms ->
                 tokenVisualizerView.updateAudioRms(rms, service.audioIngestEngine.vadState.value)
             }
         }
 
         // 5. Observe GPS/NavIC
-        lifecycleScope.launch {
+        serviceObserverJobs += lifecycleScope.launch {
             service.geofenceManager.currentLocation.collectLatest { loc ->
                 if (loc != null) {
                     tvGpsStatus.text = "NAVIC: %.4f°N".format(loc.latitude)
@@ -540,16 +806,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun restartMeshServiceForKeyChange() {
+        try {
+            val intent = Intent(this, AirHopMeshService::class.java)
+            if (isBound) {
+                try { unbindService(serviceConnection) } catch (_: Exception) {}
+                isBound = false
+            }
+            meshService = null
+            stopService(intent)
+            window.decorView.postDelayed({
+                if (!isFinishing && !isDestroyed) startAndBindMeshService()
+            }, 350L)
+        } catch (e: Exception) {
+            android.util.Log.e("AirHopSecurity", "Mesh restart after key change failed", e)
+            Toast.makeText(this, "Key saved. Restart AirHop manually to apply it.", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun startAndBindMeshService() {
         val intent = Intent(this, AirHopMeshService::class.java).apply {
             action = AirHopMeshService.ACTION_START
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
+            try { startForegroundService(intent) } catch (e: Exception) {
+                android.util.Log.e("AirHopUI", "Unable to start mesh service", e)
+                Toast.makeText(this, "Mesh could not start. Check nearby-device permissions.", Toast.LENGTH_LONG).show()
+                return
+            }
         } else {
             startService(intent)
         }
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        try { bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE) } catch (e: Exception) {
+            android.util.Log.e("AirHopUI", "Unable to bind mesh service", e)
+        }
     }
 
     private fun exportTriageLogs() {
@@ -571,7 +861,7 @@ class MainActivity : AppCompatActivity() {
             if (pm != null && !pm.isIgnoringBatteryOptimizations(pkg)) {
                 try {
                     val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = android.net.Uri.parse("package:")
+                        data = android.net.Uri.parse("package:$pkg")
                     }
                     startActivity(intent)
                 } catch (_: Exception) {}
@@ -580,27 +870,76 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestMeshPermissions() {
-        val perms = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA
-        )
+        /*
+         * Transport capabilities are optional. Do not block the entire app
+         * because a phone lacks BLE, Wi-Fi Aware, GPS, or notifications.
+         *
+         * Android 12+ has dedicated nearby-device permissions for BLE.
+         * Android 13+ has NEARBY_WIFI_DEVICES for Wi-Fi Aware. On Android 12/12L,
+         * Wi-Fi Aware APIs can still require location.
+         */
+        val pm = packageManager
+        val hasBle = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_BLUETOOTH_LE)
+        val hasWifiAware = pm.hasSystemFeature(android.content.pm.PackageManager.FEATURE_WIFI_AWARE)
+
+        val perms = mutableListOf<String>()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            perms.add(Manifest.permission.BLUETOOTH_SCAN)
-            perms.add(Manifest.permission.BLUETOOTH_ADVERTISE)
-            perms.add(Manifest.permission.BLUETOOTH_CONNECT)
+            if (hasBle) {
+                perms += Manifest.permission.BLUETOOTH_SCAN
+                perms += Manifest.permission.BLUETOOTH_ADVERTISE
+                perms += Manifest.permission.BLUETOOTH_CONNECT
+            }
+            if (hasWifiAware && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                perms += Manifest.permission.NEARBY_WIFI_DEVICES
+            }
+        } else if (hasBle || hasWifiAware) {
+            // Legacy Android uses location permission for nearby radio discovery.
+            perms += Manifest.permission.ACCESS_FINE_LOCATION
+        }
+
+        if (Build.VERSION.SDK_INT in Build.VERSION_CODES.S..Build.VERSION_CODES.S_V2 && hasWifiAware) {
+            // Wi-Fi Aware discovery on Android 12/12L still relies on location.
+            perms += Manifest.permission.ACCESS_FINE_LOCATION
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+            // Notifications are useful for the foreground service but are not
+            // a prerequisite for the mesh itself.
+            perms += Manifest.permission.POST_NOTIFICATIONS
         }
 
-        permissionLauncher.launch(perms.toTypedArray())
+        val uniqueMissing = perms.distinct().filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+
+        if (uniqueMissing.isEmpty()) {
+            startAndBindMeshService()
+        } else {
+            permissionLauncher.launch(uniqueMissing.toTypedArray())
+        }
+    }
+
+    private fun ensureMicrophonePermissionThenVoice() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            launchVoiceRecognizer()
+        } else {
+            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    private fun ensureCameraPermissionThenSos() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            toggleSosSirenAndStrobe()
+        } else {
+            cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     override fun onDestroy() {
+        releaseLocalSpeechRecognizer(cancelListening = true)
         super.onDestroy()
         try {
             flashlightStrobeManager.stopSosStrobe()

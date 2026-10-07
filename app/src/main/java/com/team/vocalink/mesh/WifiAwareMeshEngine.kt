@@ -6,19 +6,44 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.net.wifi.aware.*
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.wifi.aware.AttachCallback
+import android.net.wifi.aware.DiscoverySessionCallback
+import android.net.wifi.aware.PeerHandle
+import android.net.wifi.aware.PublishConfig
+import android.net.wifi.aware.PublishDiscoverySession
+import android.net.wifi.aware.SubscribeConfig
+import android.net.wifi.aware.SubscribeDiscoverySession
+import android.net.wifi.aware.WifiAwareManager
+import android.net.wifi.aware.WifiAwareNetworkInfo
+import android.net.wifi.aware.WifiAwareNetworkSpecifier
+import android.net.wifi.aware.WifiAwareSession
 import android.os.Build
 import android.util.Log
 import com.team.vocalink.core.ProtocolConstants
+import com.team.vocalink.core.NodeIdentity
+import com.team.vocalink.security.AirHopPacketAuthenticator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.SocketTimeoutException
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
- * Wi-Fi Aware (NAN - Neighbor Awareness Networking) High-Throughput Fallback Engine:
- * Discovers nearby peer nodes in high-density cluster environments without access points or cellular backhaul.
- * Enables burst transmission of phonemic voice tokens and multi-hop data when BLE airtime is congested.
+ * Wi-Fi Aware transport.
+ *
+ * Discovery messages are used for control-plane negotiation/fallback.
+ * AirHop frames use a peer-specific Wi-Fi Aware network socket whenever one
+ * is established. Discovery remains a compatibility fallback for peers that
+ * cannot complete socket negotiation.
  */
 class WifiAwareMeshEngine(
     private val context: Context,
@@ -26,183 +51,473 @@ class WifiAwareMeshEngine(
 ) {
     companion object {
         private const val TAG = "WifiAwareMeshEngine"
-        private const val AWARE_SERVICE_NAME = "AirHopDisasterMesh"
+        private const val SERVICE_NAME = "AirHopDisasterMesh"
+        private const val HELLO_PREFIX = "AIRHOP/1 HELLO "
+        private const val READY_PREFIX = "AIRHOP/1 READY "
+        private const val FRAME_BYTES = AirHopPacketAuthenticator.SECURE_FRAME_SIZE
+        private const val LINK_IDLE_MS = 60_000L
+        private const val CONNECT_TIMEOUT_MS = 5_000
+        private const val HANDSHAKE_TIMEOUT_MS = 3_000
     }
 
-    private val wifiAwareManager = context.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
+    private val manager = context.getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
+    private val connectivity =
+        context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    private val auth = AirHopPacketAuthenticator(context)
+    private val nodeIdentity = NodeIdentity(context)
+    private var ioExecutor: ExecutorService = Executors.newCachedThreadPool()
+    private val networkCallbacks = ConcurrentHashMap.newKeySet<ConnectivityManager.NetworkCallback>()
+
     private var awareSession: WifiAwareSession? = null
-    private var publishDiscoverySession: PublishDiscoverySession? = null
-    private var subscribeDiscoverySession: SubscribeDiscoverySession? = null
+    private var publishSession: PublishDiscoverySession? = null
+    private var subscribeSession: SubscribeDiscoverySession? = null
 
-    private val _isAwareAvailable = MutableStateFlow(false)
-    val isAwareAvailable: StateFlow<Boolean> = _isAwareAvailable.asStateFlow()
+    private val peers = ConcurrentHashMap<PeerHandle, Long>()
+    private val peerNodeIds = ConcurrentHashMap<String, PeerHandle>()
+    private val links = ConcurrentHashMap<PeerHandle, Link>()
+    private var serverSocket: ServerSocket? = null
+    private var serverPort = 0
+    private var stateReceiverRegistered = false
 
-    private val _awarePeerCount = MutableStateFlow(0)
-    val awarePeerCount: StateFlow<Int> = _awarePeerCount.asStateFlow()
+    private val _available = MutableStateFlow(false)
+    val isAwareAvailable: StateFlow<Boolean> = _available.asStateFlow()
+    private val _peerCount = MutableStateFlow(0)
+    val awarePeerCount: StateFlow<Int> = _peerCount.asStateFlow()
 
-    private val discoveredPeers = ConcurrentHashMap<PeerHandle, Long>()
+    private data class Link(
+        val peer: PeerHandle,
+        val socket: Socket,
+        val output: BufferedOutputStream,
+        @Volatile var lastUsed: Long = System.currentTimeMillis()
+    )
 
-    private val awareStateReceiver = object : BroadcastReceiver() {
+    private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == WifiAwareManager.ACTION_WIFI_AWARE_STATE_CHANGED) {
-                checkAwareAvailability()
-            }
+            if (intent?.action == WifiAwareManager.ACTION_WIFI_AWARE_STATE_CHANGED) refresh()
         }
     }
 
     init {
-        checkHardwareSupport()
+        refresh()
     }
 
-    private fun checkHardwareSupport() {
-        val hasFeature = context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)
-        val isAvail = wifiAwareManager?.isAvailable == true
-        _isAwareAvailable.value = hasFeature && isAvail
-        Log.i(TAG, "Wi-Fi Aware support: hasFeature=$hasFeature, isAvailable=$isAvail")
+    private fun refresh() {
+        _available.value = try {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE) &&
+                manager?.isAvailable == true
+        } catch (e: SecurityException) {
+            // Nearby Wi-Fi permission is optional. Keep the BLE/UDP transports
+            // alive when Wi-Fi Aware is unavailable or permission is denied.
+            Log.w(TAG, "Wi-Fi Aware capability query denied; transport disabled", e)
+            false
+        } catch (e: RuntimeException) {
+            Log.w(TAG, "Wi-Fi Aware capability query failed; transport disabled", e)
+            false
+        }
+    }
+
+    private fun remember(peer: PeerHandle) {
+        val now = System.currentTimeMillis()
+        peers[peer] = now
+        peers.entries.removeIf { now - it.value > LINK_IDLE_MS }
+        links.entries.removeIf {
+            if (now - it.value.lastUsed > LINK_IDLE_MS) {
+                closeLink(it.value)
+                true
+            } else false
+        }
+        _peerCount.value = peers.size
     }
 
     @SuppressLint("MissingPermission")
     fun start() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (!context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI_AWARE)) {
-            Log.w(TAG, "Wi-Fi Aware hardware feature not present on device")
-            return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !_available.value) return
+        if (ioExecutor.isShutdown || ioExecutor.isTerminated) ioExecutor = Executors.newCachedThreadPool()
+
+        if (!stateReceiverRegistered) {
+            try {
+                context.registerReceiver(
+                    stateReceiver,
+                    IntentFilter(WifiAwareManager.ACTION_WIFI_AWARE_STATE_CHANGED)
+                )
+                stateReceiverRegistered = true
+            } catch (e: Exception) {
+                Log.w(TAG, "Wi-Fi Aware state receiver registration failed", e)
+            }
         }
 
-        context.registerReceiver(
-            awareStateReceiver,
-            IntentFilter(WifiAwareManager.ACTION_WIFI_AWARE_STATE_CHANGED)
-        )
+        if (awareSession != null) return
 
-        attachToAwareService()
+        manager?.attach(object : AttachCallback() {
+            override fun onAttached(session: WifiAwareSession?) {
+                awareSession = session
+                publish()
+                subscribe()
+            }
+
+            override fun onAttachFailed() {
+                awareSession = null
+                Log.w(TAG, "Wi-Fi Aware attach failed")
+            }
+        }, null)
     }
 
     fun stop() {
-        try {
-            context.unregisterReceiver(awareStateReceiver)
-        } catch (_: Exception) {}
+        if (stateReceiverRegistered) {
+            try { context.unregisterReceiver(stateReceiver) } catch (_: Exception) {}
+            stateReceiverRegistered = false
+        }
+        networkCallbacks.forEach { try { connectivity.unregisterNetworkCallback(it) } catch (_: Exception) {} }
+        networkCallbacks.clear()
 
-        publishDiscoverySession?.close()
-        publishDiscoverySession = null
-        subscribeDiscoverySession?.close()
-        subscribeDiscoverySession = null
+        links.values.forEach { closeLink(it) }
+        links.clear()
+        try { serverSocket?.close() } catch (_: Exception) {}
+        serverSocket = null
+        serverPort = 0
+
+        publishSession?.close()
+        subscribeSession?.close()
         awareSession?.close()
+        publishSession = null
+        subscribeSession = null
         awareSession = null
-        discoveredPeers.clear()
-        _awarePeerCount.value = 0
+
+        peers.clear()
+        peerNodeIds.clear()
+        _peerCount.value = 0
+        ioExecutor.shutdownNow()
     }
 
-    private fun checkAwareAvailability() {
-        val available = wifiAwareManager?.isAvailable == true
-        _isAwareAvailable.value = available
-        if (available && awareSession == null) {
-            attachToAwareService()
+    @SuppressLint("MissingPermission")
+    private fun publish() {
+        val session = awareSession ?: return
+        session.publish(
+            PublishConfig.Builder().setServiceName(SERVICE_NAME).build(),
+            object : DiscoverySessionCallback() {
+                override fun onPublishStarted(session: PublishDiscoverySession) {
+                    publishSession = session
+                }
+
+                override fun onMessageReceived(peerHandle: PeerHandle, message: ByteArray) {
+                    remember(peerHandle)
+                    val text = message.decodeToString()
+                    when {
+                        text.startsWith(HELLO_PREFIX) -> {
+                            val remoteId = text.removePrefix(HELLO_PREFIX).trim().lowercase()
+                            if (remoteId.length == 8 && remoteId.all { it in "0123456789abcdef" }) {
+                                peerNodeIds[remoteId] = peerHandle
+                                establishPublisherLink(peerHandle)
+                            }
+                        }
+                        text.startsWith(READY_PREFIX) ->
+                            establishSubscriberLink(
+                                peerHandle,
+                                text.removePrefix(READY_PREFIX)
+                            )
+                        else -> deliverDiscoveryFrame(message)
+                    }
+                }
+            },
+            null
+        )
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun subscribe() {
+        val session = awareSession ?: return
+        session.subscribe(
+            SubscribeConfig.Builder().setServiceName(SERVICE_NAME).build(),
+            object : DiscoverySessionCallback() {
+                override fun onSubscribeStarted(session: SubscribeDiscoverySession) {
+                    subscribeSession = session
+                }
+
+                override fun onServiceDiscovered(
+                    peerHandle: PeerHandle,
+                    serviceSpecificInfo: ByteArray?,
+                    matchFilter: MutableList<ByteArray>?
+                ) {
+                    remember(peerHandle)
+                    try {
+                        subscribeSession?.sendMessage(peerHandle, 1, (HELLO_PREFIX + nodeIdentity.shortId()).toByteArray())
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Wi-Fi Aware HELLO failed", e)
+                    }
+                }
+
+                override fun onMessageReceived(peerHandle: PeerHandle, message: ByteArray) {
+                    remember(peerHandle)
+                    val text = message.decodeToString()
+                    if (text.startsWith(READY_PREFIX)) {
+                        establishSubscriberLink(
+                            peerHandle,
+                            text.removePrefix(READY_PREFIX)
+                        )
+                    } else {
+                        deliverDiscoveryFrame(message)
+                    }
+                }
+            },
+            null
+        )
+    }
+
+    private fun deliverDiscoveryFrame(message: ByteArray) {
+        val packet = auth.unwrap(message) ?: return
+        if (packet.size == ProtocolConstants.PACKET_SIZE &&
+            packet[0] == ProtocolConstants.AIRHOP_PREAMBLE
+        ) {
+            packetReceiver(packet)
         }
     }
 
     @SuppressLint("MissingPermission")
-    private fun attachToAwareService() {
-        val manager = wifiAwareManager ?: return
-        if (!manager.isAvailable) return
+    private fun establishPublisherLink(peer: PeerHandle) {
+        if (links.containsKey(peer)) return
 
+        if (serverSocket == null) {
+            try {
+                serverSocket = ServerSocket(0)
+                serverPort = serverSocket!!.localPort
+                val listener = serverSocket!!
+                ioExecutor.execute {
+                    while (!listener.isClosed) {
+                        try {
+                            val socket = listener.accept()
+                            ioExecutor.execute { acceptSocket(socket) }
+                        } catch (_: Exception) {
+                            break
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Wi-Fi Aware server socket failed", e)
+                return
+            }
+        }
+
+        val publish = publishSession ?: return
+        val specifier = WifiAwareNetworkSpecifier.Builder(publish, peer)
+            .setPskPassphrase(psk())
+            .setPort(serverPort)
+            .build()
+
+        requestAwareNetwork(specifier) {
+            val ready = (READY_PREFIX + serverPort).toByteArray()
+            try {
+                publish.sendMessage(peer, 2, ready)
+            } catch (e: Exception) {
+                Log.w(TAG, "Wi-Fi Aware READY failed", e)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun establishSubscriberLink(peer: PeerHandle, portText: String) {
+        if (links.containsKey(peer)) return
+        val port = portText.toIntOrNull() ?: return
+        val subscribe = subscribeSession ?: return
+
+        val specifier = WifiAwareNetworkSpecifier.Builder(subscribe, peer)
+            .setPskPassphrase(psk())
+            .setPort(port)
+            .build()
+
+        requestAwareNetwork(specifier) { network ->
+            val awareInfo = connectivity.getNetworkCapabilities(network)?.transportInfo as? WifiAwareNetworkInfo ?: return@requestAwareNetwork
+            val address = awareInfo.peerIpv6Addr ?: return@requestAwareNetwork
+
+            ioExecutor.execute {
+                try {
+                    val socket = network.socketFactory.createSocket()
+                    socket.connect(java.net.InetSocketAddress(address, awareInfo.port), CONNECT_TIMEOUT_MS)
+                    socket.getOutputStream().write(nodeIdentity.id())
+                    socket.getOutputStream().flush()
+                    val response = readHandshake(socket)
+                    if (!response.contentEquals(nodeIdentity.id())) {
+                        Log.w(TAG, "Unexpected Wi-Fi Aware peer handshake response")
+                        socket.close()
+                        return@execute
+                    }
+                    installLink(peer, socket)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Wi-Fi Aware socket connect failed", e)
+                }
+            }
+        }
+    }
+
+    private fun acceptSocket(socket: Socket) {
         try {
-            manager.attach(object : AttachCallback() {
-                override fun onAttached(session: WifiAwareSession?) {
-                    awareSession = session
-                    Log.i(TAG, "Wi-Fi Aware session attached successfully")
-                    startPublishing()
-                    startSubscribing()
-                }
-
-                override fun onAttachFailed() {
-                    Log.w(TAG, "Wi-Fi Aware attach failed")
-                    awareSession = null
-                }
-            }, null)
+            socket.soTimeout = HANDSHAKE_TIMEOUT_MS
+            val remoteId = readHandshake(socket).joinToString("") { "%02x".format(it) }
+            val peer = peerNodeIds[remoteId]
+            if (peer == null || links.containsKey(peer)) { socket.close(); return }
+            socket.getOutputStream().write(nodeIdentity.id())
+            socket.getOutputStream().flush()
+            socket.soTimeout = 0
+            installLink(peer, socket)
+        } catch (e: SocketTimeoutException) {
+            try { socket.close() } catch (_: Exception) {}
+            Log.w(TAG, "Wi-Fi Aware peer handshake timed out")
         } catch (e: Exception) {
-            Log.e(TAG, "Exception attaching to Wi-Fi Aware", e)
+            try { socket.close() } catch (_: Exception) {}
+            Log.w(TAG, "Wi-Fi Aware socket accept failed", e)
         }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun startPublishing() {
-        val session = awareSession ?: return
-
-        val config = PublishConfig.Builder()
-            .setServiceName(AWARE_SERVICE_NAME)
-            .build()
-
-        session.publish(config, object : DiscoverySessionCallback() {
-            override fun onPublishStarted(session: PublishDiscoverySession) {
-                publishDiscoverySession = session
-                Log.i(TAG, "Wi-Fi Aware publish started for service '$AWARE_SERVICE_NAME'")
-            }
-
-            override fun onMessageReceived(peerHandle: PeerHandle, message: ByteArray) {
-                handleIncomingMessage(peerHandle, message)
-            }
-        }, null)
+    private fun readHandshake(socket: Socket): ByteArray {
+        val input = socket.getInputStream()
+        val id = ByteArray(4)
+        var offset = 0
+        while (offset < id.size) {
+            val count = input.read(id, offset, id.size - offset)
+            if (count < 0) throw java.io.EOFException("Wi-Fi Aware handshake ended early")
+            offset += count
+        }
+        return id
+    }
+    private fun installLink(peer: PeerHandle, socket: Socket) {
+        socket.tcpNoDelay = true
+        val link = Link(peer, socket, BufferedOutputStream(socket.getOutputStream()))
+        val previous = links.put(peer, link)
+        if (previous != null) closeLink(previous)
+        ioExecutor.execute { readLoop(link) }
     }
 
-    @SuppressLint("MissingPermission")
-    private fun startSubscribing() {
-        val session = awareSession ?: return
+    private fun readLoop(link: Link) {
+        try {
+            val input = BufferedInputStream(link.socket.getInputStream())
+            val header = ByteArray(2)
+            while (!link.socket.isClosed) {
+                if (!readFully(input, header)) break
+                val size = ((header[0].toInt() and 0xFF) shl 8) or
+                    (header[1].toInt() and 0xFF)
+                if (size != FRAME_BYTES) {
+                    if (size <= 0 || size > 1024) break
+                    val discarded = ByteArray(size)
+                    if (!readFully(input, discarded)) break
+                    continue
+                }
 
-        val config = SubscribeConfig.Builder()
-            .setServiceName(AWARE_SERVICE_NAME)
-            .build()
+                val frame = ByteArray(FRAME_BYTES)
+                if (!readFully(input, frame)) break
+                val packet = auth.unwrap(frame) ?: continue
 
-        session.subscribe(config, object : DiscoverySessionCallback() {
-            override fun onSubscribeStarted(session: SubscribeDiscoverySession) {
-                subscribeDiscoverySession = session
-                Log.i(TAG, "Wi-Fi Aware subscribe started for service '$AWARE_SERVICE_NAME'")
+                if (packet.size == ProtocolConstants.PACKET_SIZE &&
+                    packet[0] == ProtocolConstants.AIRHOP_PREAMBLE
+                ) {
+                    link.lastUsed = System.currentTimeMillis()
+                    packetReceiver(packet)
+                }
             }
-
-            override fun onServiceDiscovered(
-                peerHandle: PeerHandle,
-                serviceSpecificInfo: ByteArray?,
-                matchFilter: MutableList<ByteArray>?
-            ) {
-                discoveredPeers[peerHandle] = System.currentTimeMillis()
-                _awarePeerCount.value = discoveredPeers.size
-                Log.i(TAG, "Discovered Wi-Fi Aware peer. Active cluster count: ${discoveredPeers.size}")
-            }
-
-            override fun onMessageReceived(peerHandle: PeerHandle, message: ByteArray) {
-                handleIncomingMessage(peerHandle, message)
-            }
-        }, null)
-    }
-
-    private fun handleIncomingMessage(peerHandle: PeerHandle, message: ByteArray) {
-        discoveredPeers[peerHandle] = System.currentTimeMillis()
-        _awarePeerCount.value = discoveredPeers.size
-
-        if (message.size == ProtocolConstants.PACKET_SIZE &&
-            message[0] == ProtocolConstants.AIRHOP_PREAMBLE) {
-            packetReceiver(message)
+        } catch (e: Exception) {
+            Log.d(TAG, "Wi-Fi Aware link closed: " + e.message)
+        } finally {
+            links.remove(link.peer, link)
+            closeLink(link)
         }
     }
 
-    /**
-     * Sends a 40-byte AirHop packet to all discovered Wi-Fi Aware cluster peers.
-     */
+    private fun readFully(input: BufferedInputStream, target: ByteArray): Boolean {
+        var offset = 0
+        while (offset < target.size) {
+            val count = input.read(target, offset, target.size - offset)
+            if (count < 0) return false
+            if (count == 0) continue
+            offset += count
+        }
+        return true
+    }
+
     fun sendBurstPacket(packet40Bytes: ByteArray) {
         if (packet40Bytes.size != ProtocolConstants.PACKET_SIZE) return
-
-        val session = publishDiscoverySession ?: subscribeDiscoverySession ?: return
+        val frame = auth.wrap(packet40Bytes)
         val now = System.currentTimeMillis()
 
-        // Clean stale peers (> 60s)
-        discoveredPeers.entries.removeIf { now - it.value > 60_000L }
-        _awarePeerCount.value = discoveredPeers.size
+        peers.entries.removeIf { now - it.value > LINK_IDLE_MS }
+        links.entries.removeIf {
+            if (now - it.value.lastUsed > LINK_IDLE_MS) {
+                closeLink(it.value)
+                true
+            } else false
+        }
+        _peerCount.value = peers.size
 
-        for (peer in discoveredPeers.keys) {
+        var sent = false
+        for (link in links.values) {
             try {
-                session.sendMessage(peer, 1, packet40Bytes)
+                synchronized(link) {
+                    link.output.write((frame.size ushr 8) and 0xFF)
+                    link.output.write(frame.size and 0xFF)
+                    link.output.write(frame)
+                    link.output.flush()
+                    link.lastUsed = now
+                }
+                sent = true
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to send burst packet to peer $peer", e)
+                Log.w(TAG, "Wi-Fi Aware socket send failed", e)
+                links.remove(link.peer, link)
+                closeLink(link)
             }
         }
+
+        if (!sent) {
+            for (peer in peers.keys) {
+                try {
+                    publishSession?.sendMessage(peer, 3, frame)
+                    subscribeSession?.sendMessage(peer, 3, frame)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Wi-Fi Aware discovery fallback failed", e)
+                }
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun requestAwareNetwork(
+        specifier: WifiAwareNetworkSpecifier,
+        onAvailable: (Network) -> Unit
+    ) {
+        val request = android.net.NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI_AWARE)
+            .setNetworkSpecifier(specifier)
+            .build()
+
+        connectivity.requestNetwork(
+            request,
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    networkCallbacks.remove(this)
+                    try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) {}
+                    onAvailable(network)
+                }
+
+                override fun onLost(network: Network) {
+                    Log.d(TAG, "Wi-Fi Aware network lost: " + network.networkHandle)
+                    networkCallbacks.remove(this)
+                    try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) {}
+                }
+
+                override fun onUnavailable() {
+                    networkCallbacks.remove(this)
+                    try { connectivity.unregisterNetworkCallback(this) } catch (_: Exception) {}
+                }
+            }.also { networkCallbacks.add(it) }
+        )
+    }
+
+    private fun psk(): String {
+        // Derive a stable 64-hex-character PSK from the shared key.
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(auth.exportKey().toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it) }.take(63)
+    }
+
+    private fun closeLink(link: Link) {
+        try { link.output.close() } catch (_: Exception) {}
+        try { link.socket.close() } catch (_: Exception) {}
     }
 }

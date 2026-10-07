@@ -1,7 +1,7 @@
 # AirHop / iTantra
-### Offline Neural Voice Transceiver for Disaster Communication (ISRO SIH26173 Target)
+### Disaster Communication Prototype (ISRO SIH26173 Target)
 
-AirHop / iTantra is an offline, multi-hop disaster communications system designed for extreme infrastructure failure scenarios (floods, earthquakes, landslides). It provides long-range neural voice transmission and geofenced SOS beaconing without cellular connectivity, satellite internet, or base stations.
+AirHop / iTantra is a disaster communications prototype for floods, earthquakes, landslides, and other infrastructure failures. Radio interoperability and offline speech recognition still require real-device validation; the app does not bundle speech models.
 
 ---
 
@@ -65,6 +65,10 @@ AirHop / iTantra is an offline, multi-hop disaster communications system designe
 
 ---
 
+### Voice input limitations
+
+On Android 12 and newer, the microphone uses Android's on-device speech recognizer when the phone provides one. The selected language's offline model must also be installed. AirHop does not bundle a speech model, so offline speech recognition is not guaranteed until verified on the target phone with network access disabled. If offline recognition reports a missing or unsupported language, AirHop now retries through the installed system recognizer and then its voice-input screen; those fallbacks may need internet. Recognized free-form text is losslessly deflated when that reduces its size, then reassembled on the receiving phone before display. Android 11 and older use the system recognizer with offline preference, which the recognizer may ignore. The SOS preset buttons remain available when speech recognition is unavailable.
+
 ### 4. Module 4: UI & Operations (`com.team.vocalink.ui`)
 * **Tactical Dark Mode HUD (`MainActivity`)**:
   - OLED black (`#000000`) high-contrast theme.
@@ -102,3 +106,22 @@ Output APK location:
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+
+## Production validation
+
+The production branch requires Android build/test CI plus a real-device BLE/Wi-Fi Aware matrix before claiming radio interoperability.
+
+
+## Physical validation gate
+
+Software CI cannot prove radio interoperability. Before release, test physical devices for:
+- A→B→C→D delivery and end-to-end acknowledgment
+- relay power-off/recovery
+- corrupted-frame/FEC handling
+- restart/persistence behavior
+- BLE extended advertising and coded-PHY capability differences
+- Wi-Fi Aware discovery/reconnect
+- 1/6/24-hour battery, memory, crash and ANR soak tests
+
+Devices that lack the required radio capability must be reported as unsupported rather than presented as long-range mesh nodes.
