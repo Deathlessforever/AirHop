@@ -40,7 +40,7 @@ class UdpMeshSocket(
                     bind(InetSocketAddress(MESH_PORT))
                 }
                 socket = sock
-                Log.i(TAG, "UDP Mesh socket bound to port  with broadcast enabled")
+                Log.i(TAG, "UDP mesh socket bound to port $MESH_PORT with broadcast enabled")
 
                 val buffer = ByteArray(256)
                 while (isActive && isRunning) {
@@ -52,7 +52,7 @@ class UdpMeshSocket(
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "UDP socket stopped or error: ")
+                Log.w(TAG, "UDP socket stopped or failed", e)
             }
         }
     }
