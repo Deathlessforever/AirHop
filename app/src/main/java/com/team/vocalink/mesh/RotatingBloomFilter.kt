@@ -30,7 +30,7 @@ class RotatingBloomFilter(
      * Guaranteed sub-millisecond execution.
      * @return true if probably present (duplicate), false if definitely not seen.
      */
-    fun contains(msgId: Int): Boolean = lock.read {
+    fun contains(msgId: Int): Boolean = lock.write {
         checkAndRotateIfNeeded()
         val h1 = hash1(msgId)
         val h2 = hash2(msgId)
