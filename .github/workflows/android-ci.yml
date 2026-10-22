@@ -33,6 +33,16 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Compile and run native C++ protocol tests
+        run: |
+          g++ -std=c++17 -Wall -Wextra -Werror \
+            app/src/test/cpp/test_rs.cpp \
+            app/src/main/cpp/gf256.cpp \
+            app/src/main/cpp/reed_solomon.cpp \
+            app/src/main/cpp/fnv1a.cpp \
+            -o /tmp/airhop-native-tests
+          /tmp/airhop-native-tests
+
       - name: Run unit tests
         run: ./gradlew test --no-daemon --stacktrace
 
