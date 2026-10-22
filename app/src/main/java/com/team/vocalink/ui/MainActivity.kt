@@ -299,9 +299,9 @@ class MainActivity : AppCompatActivity() {
         service.bleMeshEngine.setPowerSaveMode(newEco)
 
         if (newEco) {
-            btnBatteryMode.text = "🔋 72h ECO"
+            btnBatteryMode.text = "🔋 ECO MODE"
             btnBatteryMode.setTextColor(android.graphics.Color.parseColor("#00E676"))
-            Toast.makeText(this, "🔋 72-Hour Disaster Battery Mode ACTIVE: BLE duty-cycled to save phone power.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Battery saver enabled. Actual runtime depends on device, signal conditions, and usage.", Toast.LENGTH_LONG).show()
         } else {
             btnBatteryMode.text = "⚡ 100% PWR"
             btnBatteryMode.setTextColor(android.graphics.Color.parseColor("#FFD600"))
@@ -515,8 +515,11 @@ class MainActivity : AppCompatActivity() {
         // 3. Observe Peer Counts and update the Zero-Contact banner
         lifecycleScope.launch {
             service.bleMeshEngine.activePeerCount.collectLatest { count ->
-                val displayCount = if (count > 0) count else 2
-                btnNearbyPeers.text = "🟢 $displayCount Nearby Relays Active • Zero Contacts Needed [ℹ️ Tap Info]"
+                btnNearbyPeers.text = if (count > 0) {
+                    "🟢 $count nearby relay(s) detected in the last 30 seconds"
+                } else {
+                    "⚪ No nearby relays detected • Tap for connection help"
+                }
             }
         }
 
@@ -571,7 +574,7 @@ class MainActivity : AppCompatActivity() {
             if (pm != null && !pm.isIgnoringBatteryOptimizations(pkg)) {
                 try {
                     val intent = Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                        data = android.net.Uri.parse("package:")
+                        data = android.net.Uri.parse("package:$pkg")
                     }
                     startActivity(intent)
                 } catch (_: Exception) {}
