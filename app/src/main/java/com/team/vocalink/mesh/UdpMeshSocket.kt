@@ -60,13 +60,20 @@ class UdpMeshSocket(
     fun broadcastPacket(bytes: ByteArray) {
         if (bytes.size != ProtocolConstants.PACKET_SIZE) return
         scope.launch {
+            var temporarySocket: DatagramSocket? = null
             try {
-                val sock = socket ?: DatagramSocket().apply { broadcast = true }
+                val sock = socket ?: DatagramSocket().also {
+                    it.broadcast = true
+                    temporarySocket = it
+                }
                 val broadcastAddr = InetAddress.getByName("255.255.255.255")
                 val packet = DatagramPacket(bytes, bytes.size, broadcastAddr, MESH_PORT)
                 sock.send(packet)
             } catch (e: Exception) {
-                Log.w(TAG, "UDP broadcast failed: ")
+                Log.w(TAG, "UDP broadcast failed", e)
+            } finally {
+                // Do not leak a one-shot socket when the receive socket is unavailable.
+                temporarySocket?.close()
             }
         }
     }
