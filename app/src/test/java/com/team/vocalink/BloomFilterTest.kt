@@ -55,4 +55,33 @@ class BloomFilterTest {
             assertTrue("Recent item $i should be recognized", filter.contains(i))
         }
     }
+    @Test
+    fun concurrentCheckAndAddAcceptsOnlyOneCopy() {
+        val filter = RotatingBloomFilter()
+        val workers = 16
+        val ready = java.util.concurrent.CountDownLatch(workers)
+        val start = java.util.concurrent.CountDownLatch(1)
+        val accepted = java.util.concurrent.atomic.AtomicInteger(0)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(workers)
+
+        try {
+            val tasks = (1..workers).map {
+                pool.submit {
+                    ready.countDown()
+                    start.await()
+                    if (!filter.checkAndAdd(0x41A17)) {
+                        accepted.incrementAndGet()
+                    }
+                }
+            }
+
+            ready.await()
+            start.countDown()
+            tasks.forEach { it.get() }
+            assertEquals("Only one copy of a message ID should be accepted", 1, accepted.get())
+        } finally {
+            pool.shutdownNow()
+        }
+    }
+
 }
